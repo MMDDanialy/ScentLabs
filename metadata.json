@@ -2,5 +2,7 @@
   "name": "Virtual Perfume Lab",
   "description": "Luxury dark-mode perfumery atelier and precision formulation laboratory for composing virtual fragrance accords, analyzing olfactory balance, and exporting Fragrance Identity Passports.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
