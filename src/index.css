@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    font-family: var(--font-sans);
+    background-color: #0a0908;
+    color: #f4efe6;
+  }
+
+  h1, h2, .font-display {
+    font-family: var(--font-serif);
+  }
+}
+
+/* Custom subtle dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0908;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 110, 0.22);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 175, 110, 0.42);
+}
+
+@keyframes gentle-rise {
+  0% {
+    transform: translateY(0px) scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translateY(-28px) scale(0.8);
+    opacity: 0;
+  }
+}
+
+.vessel-bubble {
+  animation: gentle-rise 3.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vessel-bubble {
+    animation: none !important;
+  }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+  }
+}
