@@ -33,21 +33,44 @@ export interface FragranceNote {
   facets: FacetProfile;
 }
 
+export type DataCompletenessStatus = 'complete' | 'partial' | 'minimal';
+
+export interface PerfumeProvenance {
+  provider: string;
+  license: string;
+  sourceUrl: string;
+  sourceId: string;
+  verifiedAt: string;
+}
+
 export interface ReferencePerfume {
   id: string;
   name: string;
   house: string;
-  releaseYear: number;
-  family: OlfactoryFamily;
+  houseId?: string;
+  releaseYear: number | null;
+  concentration: string | null;
+  perfumers: string[];
+  family: string;
+  secondaryFamily?: string;
   accords: string[];
-  keyNoteIds: string[];
+  keyNoteIds?: string[];
   topNoteNames: string[];
   heartNoteNames: string[];
   baseNoteNames: string[];
+  allNoteNames: string[];
+  canonicalNoteIds: string[];
+  topCanonicalIds: string[];
+  heartCanonicalIds: string[];
+  baseCanonicalIds: string[];
   mood: string[];
   seasons: string[];
   description: string;
-  facets: FacetProfile;
+  completeness: DataCompletenessStatus;
+  pyramidComplete: boolean;
+  popularityRank?: number | null;
+  provenance: PerfumeProvenance;
+  facets?: FacetProfile;
 }
 
 export type BlendSelection = Record<string, number>;
@@ -93,12 +116,103 @@ export interface BalanceReport {
   blendedColorHex: string;
 }
 
+export type MatchStrengthTier = 'strong' | 'moderate' | 'exploratory';
+
+export interface MatchedNoteDetail {
+  noteName: string;
+  canonicalId: string;
+  userLayer: NoteLayer;
+  refLayer: NoteLayer | 'unspecified';
+  tierAligned: boolean;
+  matchType: 'exact' | 'related';
+  userShare: number;
+}
+
 export interface MatchResult {
   perfume: ReferencePerfume;
   similarityScore: number;
+  confidenceScore: number;
+  matchTier: MatchStrengthTier;
+  tierAlignmentScore: number;
   sharedNotes: string[];
+  matchedDetails: MatchedNoteDetail[];
   sharedAccords: string[];
   keyDifferences: string[];
+  explanation: string;
+}
+
+export interface MatchApiResponse {
+  matches: MatchResult[];
+  strongMatches: MatchResult[];
+  exploratoryMatches: MatchResult[];
+  lowMatchNotice: string | null;
+  searchedCount: number;
+  candidateCount: number;
+  attribution: {
+    name: string;
+    url: string;
+    license: string;
+  };
+}
+
+export interface CatalogSourceSummary {
+  provider: string;
+  license: string;
+  url: string;
+  count: number;
+}
+
+export interface CatalogStats {
+  totalPerfumes: number;
+  totalHouses: number;
+  totalMaterials: number;
+  totalNormalizedNotesInCatalog: number;
+  completePyramids: number;
+  partialPyramids: number;
+  flatNotesOnly: number;
+  missingYears: number;
+  duplicateCount: number;
+  failedImports: number;
+  lastUpdatedAt: string;
+  sources: CatalogSourceSummary[];
+}
+
+export interface AdminCatalogPage {
+  stats: CatalogStats;
+  items: ReferencePerfume[];
+  totalFiltered: number;
+  page: number;
+  limit: number;
+}
+
+export interface AdminImportRecordInput {
+  id?: string;
+  name: string;
+  house: string;
+  year?: number | null;
+  concentration?: string | null;
+  perfumers?: string[];
+  family?: string;
+  secondary_family?: string;
+  character?: string[];
+  seasons?: string[];
+  times_of_day?: string[];
+  top_notes?: string[];
+  heart_notes?: string[];
+  base_notes?: string[];
+  notes?: string[];
+  description?: string;
+  url?: string;
+  provider?: string;
+  license?: string;
+}
+
+export interface AdminImportResult {
+  added: number;
+  duplicates: number;
+  failed: number;
+  errors: string[];
+  stats: CatalogStats;
 }
 
 export type TemperaturePreference = 'fresh' | 'balanced' | 'warm';
@@ -136,6 +250,14 @@ export interface PassportData {
   entries: NormalizedNoteEntry[];
   balance: BalanceReport;
   topMatches: MatchResult[];
+  matchSummary?: {
+    searchedCount: number;
+    candidateCount: number;
+    lowMatchNotice: string | null;
+    attributionName: string;
+    attributionUrl: string;
+    attributionLicense: string;
+  };
   moodTags: string[];
   seasonTags: string[];
   editorialCritique: string;

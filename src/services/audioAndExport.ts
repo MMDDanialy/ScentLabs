@@ -1,3 +1,15 @@
+import {
+  formatLocaleDate,
+  formatLocaleNumber,
+  getDictionary,
+  getLocalizedAccord,
+  getLocalizedDeterministicCritique,
+  getLocalizedFamily,
+  getLocalizedNoteNameByIdOrName,
+  interpolate,
+} from '../i18n/engineLocalization';
+import type { Locale } from '../i18n/types';
+import type { ResolvedTheme } from '../theme/ThemeContext';
 import type { PassportData } from '../types/fragrance';
 
 class AtelierAudioEngine {
@@ -53,7 +65,7 @@ class AtelierAudioEngine {
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    const freqs = [293.66, 369.99, 440, 587.33]; // D major 7th gentle shimmer
+    const freqs = [293.66, 369.99, 440, 587.33];
     freqs.forEach((f, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -74,41 +86,67 @@ class AtelierAudioEngine {
 
 export const atelierAudio = new AtelierAudioEngine();
 
-export function formatPassportSummary(passport: PassportData): string {
-  const top = passport.entries
-    .filter((e) => e.note.layer === 'top')
-    .map((e) => `${e.note.name} (${e.percentage}%)`)
-    .join(', ');
-  const heart = passport.entries
-    .filter((e) => e.note.layer === 'heart')
-    .map((e) => `${e.note.name} (${e.percentage}%)`)
-    .join(', ');
-  const base = passport.entries
-    .filter((e) => e.note.layer === 'base')
-    .map((e) => `${e.note.name} (${e.percentage}%)`)
-    .join(', ');
+export function formatPassportSummary(passport: PassportData, locale: Locale = 'en'): string {
+  const dict = getDictionary(locale);
+  const exp = dict.passportExport;
+  const n = (v: number) => formatLocaleNumber(locale, v);
+  const pct = (v: number) => `${formatLocaleNumber(locale, v)}${locale === 'fa' ? '٪' : '%'}`;
+
+  const layerList = (layer: 'top' | 'heart' | 'base') =>
+    passport.entries
+      .filter((e) => e.note.layer === layer)
+      .map((e) => `${getLocalizedNoteNameByIdOrName(locale, e.note.id)} (${pct(e.percentage)})`)
+      .join(locale === 'fa' ? '، ' : ', ');
+
+  const top = layerList('top') || dict.reveal.noneLabel;
+  const heart = layerList('heart') || dict.reveal.noneLabel;
+  const base = layerList('base') || dict.reveal.noneLabel;
   const match = passport.topMatches[0];
+  const famLabel = passport.balance.dominantFamily
+    ? getLocalizedFamily(locale, passport.balance.dominantFamily)
+    : dict.library.bespoke;
+  const dateStr = formatLocaleDate(locale, passport.createdAt, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 
   return [
-    `VIRTUAL PERFUME LAB — FRAGRANCE IDENTITY PASSPORT`,
-    `Title: ${passport.fragranceName}`,
-    `Alchemist: ${passport.alchemistName} · Formula ID: ${passport.formulaCode}`,
-    `Created: ${new Date(passport.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`,
-    `Family: ${passport.balance.dominantFamily ?? 'Custom'} · Pyramid: ${passport.balance.pyramid.top}% Top / ${passport.balance.pyramid.heart}% Heart / ${passport.balance.pyramid.base}% Base`,
-    `Top Notes: ${top || 'None'}`,
-    `Heart Notes: ${heart || 'None'}`,
-    `Base Notes: ${base || 'None'}`,
+    exp.summaryTitle,
+    interpolate(exp.summaryAlchemist, {
+      title: passport.fragranceName || dict.reveal.untitledComposition,
+    }),
+    interpolate(exp.summaryFormula, {
+      alchemist: passport.alchemistName || dict.reveal.defaultAlchemist,
+      code: passport.formulaCode,
+    }),
+    interpolate(exp.summaryCreated, { date: dateStr }),
+    interpolate(exp.summaryFamily, {
+      family: famLabel,
+      top: n(passport.balance.pyramid.top),
+      heart: n(passport.balance.pyramid.heart),
+      base: n(passport.balance.pyramid.base),
+    }),
+    interpolate(exp.summaryPyramid, { top, heart, base }),
     match
-      ? `Closest Algorithmic Reference: ${match.perfume.name} (${match.perfume.house}) — ${match.similarityScore}% internal similarity estimate`
+      ? interpolate(exp.summaryClosest, {
+          name: match.perfume.name,
+          house: match.perfume.house,
+          score: n(match.similarityScore),
+          confidence: n(match.confidenceScore ?? 80),
+        })
       : '',
-    `Note: Virtual creative blend shares and algorithmic similarity estimate; not a physical chemical formula or brand endorsement.`,
+    exp.summaryNote,
   ]
     .filter(Boolean)
     .join('\n');
 }
 
-export async function copyPassportSummary(passport: PassportData): Promise<boolean> {
-  const text = formatPassportSummary(passport);
+export async function copyPassportSummary(
+  passport: PassportData,
+  locale: Locale = 'en'
+): Promise<boolean> {
+  const text = formatPassportSummary(passport, locale);
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
@@ -174,7 +212,21 @@ function wrapCanvasText(
   return currentY;
 }
 
-export function exportPassportToPng(passport: PassportData): boolean {
+function loadBrandSymbolImage(): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = '/virtual_perfume_lab_symbol_transparent.png';
+  });
+}
+
+export async function exportPassportToPng(
+  passport: PassportData,
+  locale: Locale = 'en',
+  theme: ResolvedTheme = 'dark'
+): Promise<boolean> {
   try {
     const width = 1200;
     const height = 1600;
@@ -184,83 +236,161 @@ export function exportPassportToPng(passport: PassportData): boolean {
     const ctx = canvas.getContext('2d');
     if (!ctx) return false;
 
+    const isRtl = locale === 'fa';
+    const isLight = theme === 'light';
+    const dict = getDictionary(locale);
+    const exp = dict.passportExport;
+    const n = (v: number) => formatLocaleNumber(locale, v);
+    const pct = (v: number) => `${n(v)}${isRtl ? '٪' : '%'}`;
+
+    const palette = isLight
+      ? {
+          bg: '#F6F1E7',
+          cardBg: '#FCF9F2',
+          text: '#1E1913',
+          textSecondary: '#4A3F32',
+          textMuted: '#655848',
+          accent: '#8B6324',
+          borderOuter: 'rgba(139, 99, 36, 0.42)',
+          borderInner: 'rgba(139, 99, 36, 0.20)',
+          swatchBorder: 'rgba(30, 25, 19, 0.25)',
+        }
+      : {
+          bg: '#0A0908',
+          cardBg: '#151311',
+          text: '#F4EFE6',
+          textSecondary: '#D7CFC2',
+          textMuted: '#A89F91',
+          accent: '#D4AF6E',
+          borderOuter: 'rgba(212, 175, 110, 0.36)',
+          borderInner: 'rgba(212, 175, 110, 0.14)',
+          swatchBorder: 'rgba(244, 239, 230, 0.35)',
+        };
+
+    const brandSymbol = await loadBrandSymbolImage();
+
     // Background
-    ctx.fillStyle = '#0A0908';
+    ctx.fillStyle = palette.bg;
     ctx.fillRect(0, 0, width, height);
 
-    // Subtle radial warmth behind vessel emblem
     const grad = ctx.createRadialGradient(600, 320, 40, 600, 320, 520);
     grad.addColorStop(0, `${passport.balance.blendedColorHex}24`);
-    grad.addColorStop(1, 'rgba(10, 9, 8, 0)');
+    grad.addColorStop(1, isLight ? 'rgba(246, 241, 231, 0)' : 'rgba(10, 9, 8, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
     // Outer double border
-    ctx.strokeStyle = 'rgba(212, 175, 110, 0.36)';
+    ctx.strokeStyle = palette.borderOuter;
     ctx.lineWidth = 2;
     ctx.strokeRect(48, 48, width - 96, height - 96);
 
-    ctx.strokeStyle = 'rgba(212, 175, 110, 0.14)';
+    ctx.strokeStyle = palette.borderInner;
     ctx.lineWidth = 1;
     ctx.strokeRect(64, 64, width - 128, height - 128);
 
-    // Top kicker
-    ctx.fillStyle = '#D4AF6E';
-    ctx.font = '500 20px "JetBrains Mono", monospace';
-    ctx.fillText('VIRTUAL PERFUME LAB  ·  FRAGRANCE IDENTITY PASSPORT', 104, 126);
+    const sansFont = isRtl
+      ? '"Vazirmatn", "Plus Jakarta Sans", sans-serif'
+      : '"Plus Jakarta Sans", sans-serif';
+    const serifFont = isRtl
+      ? '"Vazirmatn", "Cormorant Garamond", Georgia, serif'
+      : '"Cormorant Garamond", Georgia, serif';
+    const monoFont = isRtl
+      ? '"Vazirmatn", "JetBrains Mono", monospace'
+      : '"JetBrains Mono", monospace';
 
-    ctx.fillStyle = '#A89F91';
-    ctx.font = '400 20px "JetBrains Mono", monospace';
-    const dateStr = new Date(passport.createdAt).toLocaleDateString('en-US', {
+    ctx.direction = isRtl ? 'rtl' : 'ltr';
+    ctx.textAlign = isRtl ? 'right' : 'left';
+
+    const marginX = 104;
+    const anchorX = isRtl ? width - marginX : marginX;
+    const textStartX = brandSymbol
+      ? isRtl
+        ? width - 206
+        : 206
+      : anchorX;
+
+    if (brandSymbol) {
+      const targetSize = 84;
+      const ratio = brandSymbol.naturalWidth / Math.max(1, brandSymbol.naturalHeight);
+      const drawW = ratio >= 1 ? targetSize : targetSize * ratio;
+      const drawH = ratio >= 1 ? targetSize / ratio : targetSize;
+      const imgX = isRtl ? width - 102 - drawW : 102;
+      if (isLight) {
+        ctx.fillStyle = '#14110D';
+        ctx.beginPath();
+        ctx.roundRect(imgX - 6, 86, drawW + 12, drawH + 12, 12);
+        ctx.fill();
+      }
+      ctx.drawImage(brandSymbol, imgX, 92, drawW, drawH);
+    }
+
+    // Top kicker
+    ctx.fillStyle = palette.accent;
+    ctx.font = `500 20px ${monoFont}`;
+    ctx.fillText(exp.header, textStartX, 126);
+
+    ctx.fillStyle = palette.textMuted;
+    ctx.font = `400 20px ${monoFont}`;
+    const dateStr = formatLocaleDate(locale, passport.createdAt, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
     });
-    ctx.fillText(`${passport.formulaCode}  ·  ${dateStr}`, 104, 162);
+    const dateMetaLine = isRtl
+      ? `\u200F${dateStr}  ·  \u200E${passport.formulaCode}\u200E`
+      : `${passport.formulaCode}  ·  ${dateStr}`;
+    ctx.fillText(dateMetaLine, textStartX, 162);
 
     // Divider
-    ctx.strokeStyle = 'rgba(212, 175, 110, 0.2)';
+    ctx.strokeStyle = palette.borderInner;
     ctx.beginPath();
-    ctx.moveTo(104, 196);
-    ctx.lineTo(width - 104, 196);
+    ctx.moveTo(104, 198);
+    ctx.lineTo(width - 104, 198);
     ctx.stroke();
 
     // Title
-    ctx.fillStyle = '#F4EFE6';
-    ctx.font = '600 74px "Cormorant Garamond", Georgia, serif';
+    ctx.fillStyle = palette.text;
+    ctx.font = `600 68px ${serifFont}`;
     const titleEndY = wrapCanvasText(
       ctx,
-      passport.fragranceName || 'Untitled Composition',
-      104,
+      passport.fragranceName || dict.reveal.untitledComposition,
+      anchorX,
       284,
-      width - 280,
+      width - 300,
       82,
       2
     );
 
-    // Swatch orb on right
+    // Swatch orb on opposite trailing side
+    const orbX = isRtl ? 160 : width - 160;
     ctx.beginPath();
-    ctx.arc(width - 160, 276, 46, 0, Math.PI * 2);
+    ctx.arc(orbX, 276, 46, 0, Math.PI * 2);
     ctx.fillStyle = passport.balance.blendedColorHex;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(244, 239, 230, 0.35)';
+    ctx.strokeStyle = palette.swatchBorder;
     ctx.lineWidth = 2;
     ctx.stroke();
 
     // Alchemist + family metadata
-    ctx.fillStyle = '#C7BEB0';
-    ctx.font = '500 24px "Plus Jakarta Sans", sans-serif';
+    const famLabel = passport.balance.dominantFamily
+      ? getLocalizedFamily(locale, passport.balance.dominantFamily)
+      : dict.library.bespoke;
+    const alchemist = passport.alchemistName || dict.reveal.defaultAlchemist;
+    ctx.fillStyle = palette.textSecondary;
+    ctx.font = `500 24px ${sansFont}`;
     ctx.fillText(
-      `Composed by ${passport.alchemistName}  ·  ${passport.balance.dominantFamily ?? 'Bespoke'} Family`,
-      104,
+      isRtl
+        ? `${dict.reveal.composedBy} ${alchemist}  ·  ${interpolate(dict.reveal.familySuffix, { family: famLabel })}`
+        : `${dict.reveal.composedBy} ${alchemist}  ·  ${interpolate(dict.reveal.familySuffix, { family: famLabel })}`,
+      anchorX,
       titleEndY + 12
     );
 
     // Pyramid section
     const pyrY = titleEndY + 86;
-    ctx.fillStyle = '#D4AF6E';
-    ctx.font = '500 18px "JetBrains Mono", monospace';
-    ctx.fillText('OLFACTORY PYRAMID SHARES (VIRTUAL BLEND UNITS)', 104, pyrY);
+    ctx.fillStyle = palette.accent;
+    ctx.font = `500 18px ${monoFont}`;
+    ctx.fillText(exp.pyramidCaption, anchorX, pyrY);
 
     const barX = 104;
     const barY = pyrY + 26;
@@ -270,104 +400,136 @@ export function exportPassportToPng(passport: PassportData): boolean {
     const heartW = (barW * passport.balance.pyramid.heart) / 100;
     const baseW = Math.max(0, barW - topW - heartW);
 
-    ctx.fillStyle = '#E8C967';
-    ctx.fillRect(barX, barY, topW, barH);
-    ctx.fillStyle = '#C86472';
-    ctx.fillRect(barX + topW, barY, heartW, barH);
-    ctx.fillStyle = '#9C734B';
-    ctx.fillRect(barX + topW + heartW, barY, baseW, barH);
+    if (isRtl) {
+      ctx.fillStyle = '#E8C967';
+      ctx.fillRect(barX + barW - topW, barY, topW, barH);
+      ctx.fillStyle = '#C86472';
+      ctx.fillRect(barX + barW - topW - heartW, barY, heartW, barH);
+      ctx.fillStyle = '#9C734B';
+      ctx.fillRect(barX, barY, baseW, barH);
+    } else {
+      ctx.fillStyle = '#E8C967';
+      ctx.fillRect(barX, barY, topW, barH);
+      ctx.fillStyle = '#C86472';
+      ctx.fillRect(barX + topW, barY, heartW, barH);
+      ctx.fillStyle = '#9C734B';
+      ctx.fillRect(barX + topW + heartW, barY, baseW, barH);
+    }
 
-    ctx.fillStyle = '#E8DFD1';
-    ctx.font = '500 20px "JetBrains Mono", monospace';
+    ctx.fillStyle = palette.textSecondary;
+    ctx.font = `500 20px ${monoFont}`;
     ctx.fillText(
-      `TOP ${passport.balance.pyramid.top}%    ·    HEART ${passport.balance.pyramid.heart}%    ·    BASE ${passport.balance.pyramid.base}%`,
-      104,
+      `${dict.domain.layers.top} ${pct(passport.balance.pyramid.top)}    ·    ${dict.domain.layers.heart} ${pct(passport.balance.pyramid.heart)}    ·    ${dict.domain.layers.base} ${pct(passport.balance.pyramid.base)}`,
+      anchorX,
       barY + 54
     );
 
     // Notes list by layer
     let cursorY = barY + 114;
     const layers: { key: 'top' | 'heart' | 'base'; label: string }[] = [
-      { key: 'top', label: 'TOP NOTES' },
-      { key: 'heart', label: 'HEART NOTES' },
-      { key: 'base', label: 'BASE NOTES' },
+      { key: 'top', label: exp.topLabel },
+      { key: 'heart', label: exp.heartLabel },
+      { key: 'base', label: exp.baseLabel },
     ];
 
     for (const layer of layers) {
       const items = passport.entries.filter((e) => e.note.layer === layer.key);
-      ctx.fillStyle = '#D4AF6E';
-      ctx.font = '500 17px "JetBrains Mono", monospace';
-      ctx.fillText(layer.label, 104, cursorY);
+      ctx.fillStyle = palette.accent;
+      ctx.font = `500 17px ${monoFont}`;
+      ctx.fillText(layer.label, anchorX, cursorY);
 
-      ctx.fillStyle = '#F4EFE6';
-      ctx.font = '400 23px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = palette.text;
+      ctx.font = `400 23px ${sansFont}`;
       const line =
         items.length > 0
-          ? items.map((i) => `${i.note.name} (${i.percentage}%)`).join('  ·  ')
-          : 'None included';
-      cursorY = wrapCanvasText(ctx, line, 104, cursorY + 34, width - 208, 32, 2);
+          ? items
+              .map(
+                (i) =>
+                  `${getLocalizedNoteNameByIdOrName(locale, i.note.id)} (${pct(i.percentage)})`
+              )
+              .join('  ·  ')
+          : exp.noneIncluded;
+      cursorY = wrapCanvasText(ctx, line, anchorX, cursorY + 34, width - 208, 32, 2);
       cursorY += 18;
     }
 
     // Closest reference match box
     const matchY = Math.max(cursorY + 20, 1030);
-    ctx.fillStyle = '#151311';
+    ctx.fillStyle = palette.cardBg;
     ctx.fillRect(104, matchY, width - 208, 220);
-    ctx.strokeStyle = 'rgba(212, 175, 110, 0.25)';
+    ctx.strokeStyle = palette.borderOuter;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(104, matchY, width - 208, 220);
 
     const topMatch = passport.topMatches[0];
-    ctx.fillStyle = '#D4AF6E';
-    ctx.font = '500 17px "JetBrains Mono", monospace';
-    ctx.fillText('INTERNAL ALGORITHMIC SIMILARITY ESTIMATE', 136, matchY + 44);
+    const boxAnchorX = isRtl ? width - 136 : 136;
+    const scoreAnchorX = isRtl ? 196 : width - 220;
+
+    ctx.fillStyle = palette.accent;
+    ctx.font = `500 17px ${monoFont}`;
+    ctx.fillText(exp.similarityEstimateHeader, boxAnchorX, matchY + 44);
 
     if (topMatch) {
-      ctx.fillStyle = '#F4EFE6';
-      ctx.font = '600 38px "Cormorant Garamond", Georgia, serif';
+      ctx.fillStyle = palette.text;
+      ctx.font = `600 36px ${serifFont}`;
       ctx.fillText(
         `${topMatch.perfume.name} — ${topMatch.perfume.house}`,
-        136,
+        boxAnchorX,
         matchY + 96
       );
 
-      ctx.fillStyle = '#D4AF6E';
-      ctx.font = '600 36px "JetBrains Mono", monospace';
-      ctx.fillText(`${topMatch.similarityScore}%`, width - 220, matchY + 96);
+      ctx.fillStyle = palette.accent;
+      ctx.font = `600 36px ${monoFont}`;
+      ctx.fillText(pct(topMatch.similarityScore), scoreAnchorX, matchY + 96);
 
-      ctx.fillStyle = '#C7BEB0';
-      ctx.font = '400 20px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = palette.textSecondary;
+      ctx.font = `400 20px ${sansFont}`;
+      const sharedItems = topMatch.sharedNotes
+        .map((sn) => getLocalizedNoteNameByIdOrName(locale, sn))
+        .join(isRtl ? '، ' : ', ');
+      const sharedAccords = topMatch.sharedAccords
+        .map((sa) => getLocalizedAccord(locale, sa))
+        .join(isRtl ? '، ' : ', ');
       const sharedLine =
         topMatch.sharedNotes.length > 0
-          ? `Shared notes: ${topMatch.sharedNotes.join(', ')}`
-          : `Shared accords: ${topMatch.sharedAccords.join(', ') || 'Facet balance'}`;
-      wrapCanvasText(ctx, sharedLine, 136, matchY + 144, width - 272, 28, 2);
+          ? interpolate(exp.sharedNotesPrefix, { items: sharedItems })
+          : interpolate(exp.sharedAccordsPrefix, {
+              items: sharedAccords || dict.reveal.accordsFallback,
+            });
+      wrapCanvasText(ctx, sharedLine, boxAnchorX, matchY + 144, width - 272, 28, 2);
     }
 
     // Editorial note
     const critY = matchY + 266;
-    ctx.fillStyle = '#D4AF6E';
-    ctx.font = '500 17px "JetBrains Mono", monospace';
-    ctx.fillText('ATELIER ARCHIVE NOTE', 104, critY);
+    ctx.fillStyle = palette.accent;
+    ctx.font = `500 17px ${monoFont}`;
+    ctx.fillText(exp.archiveNoteHeader, anchorX, critY);
 
-    ctx.fillStyle = '#D7CFC2';
-    ctx.font = '400 21px "Plus Jakarta Sans", sans-serif';
-    wrapCanvasText(ctx, passport.editorialCritique, 104, critY + 36, width - 208, 30, 4);
+    const displayCritique =
+      passport.critiqueSource === 'deterministic'
+        ? getLocalizedDeterministicCritique(
+            locale,
+            passport.fragranceName,
+            passport.entries,
+            passport.balance,
+            passport.topMatches[0] ?? null
+          )
+        : passport.editorialCritique;
+
+    ctx.fillStyle = palette.textSecondary;
+    ctx.font = `400 21px ${sansFont}`;
+    wrapCanvasText(ctx, displayCritique, anchorX, critY + 36, width - 208, 32, 4);
 
     // Honest footer disclaimer
-    ctx.strokeStyle = 'rgba(212, 175, 110, 0.18)';
+    ctx.strokeStyle = palette.borderInner;
     ctx.beginPath();
     ctx.moveTo(104, height - 130);
     ctx.lineTo(width - 104, height - 130);
     ctx.stroke();
 
-    ctx.fillStyle = '#8F8679';
-    ctx.font = '400 17px "Plus Jakarta Sans", sans-serif';
-    ctx.fillText(
-      'Virtual creative blend composition & algorithmic similarity estimate. Not a physical chemical formula or brand endorsement.',
-      104,
-      height - 92
-    );
+    ctx.fillStyle = palette.textMuted;
+    ctx.font = `400 17px ${sansFont}`;
+    ctx.fillText(exp.footerDisclaimer, anchorX, height - 92);
 
     const dataUrl = canvas.toDataURL('image/png');
     const link = document.createElement('a');
@@ -379,7 +541,9 @@ export function exportPassportToPng(passport: PassportData): boolean {
     link.href = dataUrl;
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    setTimeout(() => {
+      link.remove();
+    }, 150);
     return true;
   } catch {
     return false;

@@ -12,7 +12,6 @@ import type {
   NoteLayer,
   OlfactoryFamily,
   PyramidBreakdown,
-  ReferencePerfume,
   ScentProfile,
   TemperaturePreference,
 } from '../types/fragrance';
@@ -302,119 +301,6 @@ export function computeBalanceReport(
     diagnostics,
     blendedColorHex: rgbToHex(rSum, gSum, bSum),
   };
-}
-
-export function computeSimilarityMatches(
-  selection: BlendSelection,
-  notes: FragranceNote[],
-  catalog: ReferencePerfume[]
-): MatchResult[] {
-  const entries = normalizeBlend(selection, notes);
-  if (entries.length === 0) return [];
-
-  const balance = computeBalanceReport(selection, notes);
-  const userNoteWeights = new Map(entries.map((e) => [e.note.id, e.percentage / 100]));
-  const userAccordSet = new Set<string>();
-  for (const e of entries) {
-    for (const acc of e.note.accords) {
-      userAccordSet.add(acc.toLowerCase());
-    }
-  }
-
-  const facetKeys: (keyof FacetProfile)[] = [
-    'warmth',
-    'freshness',
-    'sweetness',
-    'dryness',
-    'smokiness',
-    'floralcy',
-  ];
-
-  const results: MatchResult[] = catalog.map((perfume) => {
-    // 1. Weighted note overlap (45%)
-    const refNoteSet = new Set(perfume.keyNoteIds);
-    let userOverlapWeight = 0;
-    const sharedNotes: string[] = [];
-    for (const e of entries) {
-      if (refNoteSet.has(e.note.id)) {
-        userOverlapWeight += e.percentage / 100;
-        sharedNotes.push(e.note.name);
-      }
-    }
-    const refCoverage = sharedNotes.length / Math.max(1, perfume.keyNoteIds.length);
-    const noteScore = 0.6 * userOverlapWeight + 0.4 * refCoverage;
-
-    // 2. Accord Jaccard / overlap (30%)
-    const refAccordSet = new Set(perfume.accords.map((a) => a.toLowerCase()));
-    const sharedAccords: string[] = [];
-    for (const acc of perfume.accords) {
-      if (userAccordSet.has(acc.toLowerCase())) {
-        sharedAccords.push(acc);
-      }
-    }
-    const unionCount = new Set([...userAccordSet, ...refAccordSet]).size;
-    const accordScore = unionCount > 0 ? sharedAccords.length / unionCount : 0;
-
-    // 3. Facet vector proximity (25%)
-    let sqDist = 0;
-    for (const key of facetKeys) {
-      const diff = (balance.facets[key] - perfume.facets[key]) / 100;
-      sqDist += diff * diff;
-    }
-    const rmsDist = Math.sqrt(sqDist / facetKeys.length);
-    const facetScore = clamp(1 - rmsDist * 1.4, 0, 1);
-
-    // Family alignment bonus (small tie-breaker)
-    const familyBonus = balance.dominantFamily === perfume.family ? 0.05 : 0;
-
-    const rawScore = (0.45 * noteScore + 0.30 * accordScore + 0.25 * facetScore + familyBonus) * 100;
-    const similarityScore = clamp(Math.round(rawScore), 12, 97);
-
-    // Key differences
-    const keyDifferences: string[] = [];
-    const missingRefSignatures = perfume.keyNoteIds
-      .filter((id) => !userNoteWeights.has(id))
-      .map((id) => notes.find((n) => n.id === id)?.name)
-      .filter((n): n is string => Boolean(n));
-
-    if (missingRefSignatures.length > 0) {
-      keyDifferences.push(
-        `Reference emphasizes ${missingRefSignatures.slice(0, 2).join(' & ')} absent in your blend`
-      );
-    }
-
-    const extraUserNotes = entries
-      .filter((e) => !refNoteSet.has(e.note.id))
-      .sort((a, b) => b.percentage - a.percentage)
-      .map((e) => e.note.name);
-
-    if (extraUserNotes.length > 0) {
-      keyDifferences.push(`Your blend introduces ${extraUserNotes.slice(0, 2).join(' & ')}`);
-    }
-
-    const warmthDelta = balance.facets.warmth - perfume.facets.warmth;
-    if (Math.abs(warmthDelta) >= 18) {
-      keyDifferences.push(
-        warmthDelta > 0
-          ? 'Your composition leans noticeably warmer and richer'
-          : 'Your composition reads cooler and lighter'
-      );
-    }
-
-    if (keyDifferences.length === 0) {
-      keyDifferences.push('Closely aligned facet proportions across warmth, dryness, and lift');
-    }
-
-    return {
-      perfume,
-      similarityScore,
-      sharedNotes,
-      sharedAccords,
-      keyDifferences,
-    };
-  });
-
-  return results.sort((a, b) => b.similarityScore - a.similarityScore);
 }
 
 export function deriveMoodAndSeasons(balance: BalanceReport): {
