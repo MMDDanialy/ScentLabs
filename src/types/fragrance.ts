@@ -128,6 +128,15 @@ export interface MatchedNoteDetail {
   userShare: number;
 }
 
+export interface MatchScoreBreakdown {
+  userNoteCoverage: number;
+  refPrecision: number;
+  tierNoteAlignment: number;
+  pyramidDistribution: number;
+  familyAccord: number;
+  facetProximity: number;
+}
+
 export interface MatchResult {
   perfume: ReferencePerfume;
   similarityScore: number;
@@ -135,10 +144,14 @@ export interface MatchResult {
   matchTier: MatchStrengthTier;
   tierAlignmentScore: number;
   sharedNotes: string[];
+  sharedCanonicalIds?: string[];
+  userOnlyNoteNames?: string[];
+  refOnlyNoteNames?: string[];
   matchedDetails: MatchedNoteDetail[];
   sharedAccords: string[];
   keyDifferences: string[];
   explanation: string;
+  scoreBreakdown?: MatchScoreBreakdown;
 }
 
 export interface MatchApiResponse {
@@ -148,6 +161,7 @@ export interface MatchApiResponse {
   lowMatchNotice: string | null;
   searchedCount: number;
   candidateCount: number;
+  algorithmVersion?: string;
   attribution: {
     name: string;
     url: string;
@@ -262,6 +276,8 @@ export interface PassportData {
   seasonTags: string[];
   editorialCritique: string;
   critiqueSource: 'ai' | 'deterministic';
+  algorithmVersion?: string;
+  schemaVersion?: number;
 }
 
 export type AppStage = 'discovery' | 'lab' | 'reveal';

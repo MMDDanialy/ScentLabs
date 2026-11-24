@@ -221,14 +221,25 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
             {formatNumber(balance.pyramid.base)}%
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onReveal}
-          disabled={balance.totalDrops === 0}
-          className="px-4 py-2 rounded-lg bg-[var(--vpl-accent)] text-[var(--vpl-accent-text-on-fill)] text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap shrink-0 cursor-pointer"
-        >
-          {dict.lab.mobileReveal}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() =>
+              document.getElementById('lab-vessel-panel')?.scrollIntoView({ behavior: 'smooth' })
+            }
+            className="px-2.5 py-2 rounded-lg border border-[var(--vpl-border-strong)] text-[11px] font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-accent)] whitespace-nowrap cursor-pointer"
+          >
+            {dict.lab.jumpToVessel}
+          </button>
+          <button
+            type="button"
+            onClick={onReveal}
+            disabled={balance.totalDrops === 0}
+            className="px-3.5 py-2 rounded-lg bg-[var(--vpl-accent)] text-[var(--vpl-accent-text-on-fill)] text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap cursor-pointer"
+          >
+            {dict.lab.mobileReveal}
+          </button>
+        </div>
       </div>
 
       {/* Main Split Workspace */}
@@ -409,13 +420,13 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
                           onClick={() => onAdjustNote(note.id, -1)}
                           disabled={drops === 0}
                           aria-label={t('lab.removeDropAria', { name: noteCopy.name })}
-                          className="w-8 h-8 rounded-md border border-[var(--vpl-border-strong)] flex items-center justify-center text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-accent)] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                          className="w-9 h-9 rounded-md border border-[var(--vpl-border-strong)] flex items-center justify-center text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-accent)] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                         >
                           <Minus className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
 
                         <span
-                          className="w-10 text-center font-mono text-sm font-semibold text-[var(--vpl-text)] tabular-nums"
+                          className="w-9 text-center font-mono text-sm font-semibold text-[var(--vpl-text)] tabular-nums"
                           aria-label={t('lab.dropsUnitLabel', { name: noteCopy.name })}
                         >
                           {formatNumber(drops)}
@@ -425,7 +436,7 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
                           type="button"
                           onClick={() => onAdjustNote(note.id, 1)}
                           aria-label={t('lab.addDropAria', { name: noteCopy.name })}
-                          className="w-8 h-8 rounded-md bg-[var(--vpl-accent-soft)] border border-[var(--vpl-border-gold)] flex items-center justify-center text-[var(--vpl-text)] hover:bg-[var(--vpl-accent)] hover:text-[var(--vpl-accent-text-on-fill)] transition-colors cursor-pointer"
+                          className="w-9 h-9 rounded-md bg-[var(--vpl-accent-soft)] border border-[var(--vpl-border-gold)] flex items-center justify-center text-[var(--vpl-text)] hover:bg-[var(--vpl-accent)] hover:text-[var(--vpl-accent-text-on-fill)] transition-colors cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" aria-hidden="true" />
                         </button>
@@ -435,7 +446,7 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
                         type="button"
                         onClick={() => onAdjustNote(note.id, 3)}
                         aria-label={t('lab.addThreeDropsAria', { name: noteCopy.name })}
-                        className="px-2.5 py-1.5 rounded-md border border-[var(--vpl-border)] text-xs font-mono text-[var(--vpl-text-body)] hover:border-[var(--vpl-border-gold)] hover:text-[var(--vpl-text)] transition-colors cursor-pointer whitespace-nowrap"
+                        className="px-2.5 py-2 rounded-md border border-[var(--vpl-border)] text-xs font-mono text-[var(--vpl-text-body)] hover:border-[var(--vpl-border-gold)] hover:text-[var(--vpl-text)] transition-colors cursor-pointer whitespace-nowrap"
                       >
                         {dict.lab.addThreeDropsLabel}
                       </button>
@@ -448,7 +459,7 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
         </section>
 
         {/* Vessel, Normalized Shares, Balance Engine & Reveal */}
-        <aside className="lg:col-span-5 space-y-5 lg:sticky lg:top-6" aria-label={dict.lab.diagnosticsTitle}>
+        <aside id="lab-vessel-panel" className="lg:col-span-5 space-y-5 lg:sticky lg:top-6" aria-label={dict.lab.diagnosticsTitle}>
           <PerfumeVessel balance={balance} entries={entries} />
 
           {/* Normalized Blend Proportions */}

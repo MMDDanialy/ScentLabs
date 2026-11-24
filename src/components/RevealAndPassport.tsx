@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import { getLocalizedDeterministicCritique } from '../i18n/engineLocalization';
-import { copyPassportSummary, exportPassportToPng } from '../services/audioAndExport';
+import { copyPassportSummary, exportPassportToPng, formatPassportSummary } from '../services/audioAndExport';
 import { useTheme } from '../theme/ThemeContext';
 import type { MatchResult, PassportData } from '../types/fragrance';
 
@@ -209,6 +209,7 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
   const isLight = resolvedTheme === 'light';
 
   const [copied, setCopied] = useState(false);
+  const [fallbackSummaryText, setFallbackSummaryText] = useState<string | null>(null);
   const [exported, setExported] = useState(false);
   const [showAllExploratory, setShowAllExploratory] = useState(false);
   const [alambicImgError, setAlambicImgError] = useState(false);
@@ -260,7 +261,12 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
 
   const handleCopy = async () => {
     const ok = await copyPassportSummary(passport, locale);
-    if (ok) setCopied(true);
+    if (ok) {
+      setCopied(true);
+      setFallbackSummaryText(null);
+    } else {
+      setFallbackSummaryText(formatPassportSummary(passport, locale));
+    }
   };
 
   const handleDownload = async () => {
@@ -372,17 +378,34 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
               <span aria-hidden="true">·</span>
               <span>{passport.moodTags.map((tag) => getMoodTagLabel(tag)).join(' / ')}</span>
               <span aria-hidden="true">·</span>
-              <span>{passport.seasonTags.map((s) => getSeasonTagLabel(s)).join('، ')}</span>
+              <span>
+                {passport.seasonTags
+                  .map((s) => getSeasonTagLabel(s))
+                  .join(locale === 'fa' ? '، ' : ', ')}
+              </span>
             </div>
           </section>
 
           {/* Editorial Critique */}
           <section className="p-6 rounded-xl bg-[var(--vpl-bg-card)] border border-[var(--vpl-border)] space-y-3">
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="font-serif text-xl font-semibold text-[var(--vpl-text)]">
-                  {dict.reveal.critiqueTitle}
-                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-serif text-xl font-semibold text-[var(--vpl-text)]">
+                    {dict.reveal.critiqueTitle}
+                  </h2>
+                  <span
+                    className={`px-2 py-0.5 rounded border text-[10px] font-mono uppercase tracking-wider ${
+                      passport.critiqueSource === 'ai'
+                        ? 'bg-[var(--vpl-accent-soft)] border-[var(--vpl-border-gold)] text-[var(--vpl-accent)]'
+                        : 'bg-[var(--vpl-bg-subtle)] border-[var(--vpl-border-strong)] text-[var(--vpl-text-muted)]'
+                    }`}
+                  >
+                    {passport.critiqueSource === 'ai'
+                      ? dict.reveal.critiqueBadgeAi
+                      : dict.reveal.critiqueBadgeDeterministic}
+                  </span>
+                </div>
                 <p className="text-[11px] font-mono text-[var(--vpl-text-muted)] mt-0.5">
                   {passport.critiqueSource === 'ai'
                     ? dict.reveal.critiqueAiSubtitle
@@ -694,6 +717,34 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
               </>
             )}
           </button>
+
+          {fallbackSummaryText && (
+            <div className="p-4 rounded-xl bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-gold)] space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-mono uppercase text-[var(--vpl-accent)]">
+                  {dict.reveal.clipboardFallbackTitle}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setFallbackSummaryText(null)}
+                  className="text-xs text-[var(--vpl-text-muted)] hover:text-[var(--vpl-text)] cursor-pointer"
+                >
+                  {dict.reveal.clipboardClose}
+                </button>
+              </div>
+              <p className="text-xs text-[var(--vpl-text-muted)] leading-relaxed">
+                {dict.reveal.clipboardFallbackHint}
+              </p>
+              <textarea
+                readOnly
+                value={fallbackSummaryText}
+                rows={6}
+                onFocus={(e) => e.currentTarget.select()}
+                aria-label={dict.reveal.clipboardFallbackTitle}
+                className="w-full p-2.5 rounded-lg bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border-strong)] text-xs font-mono text-[var(--vpl-text)] focus-visible:outline-2 focus-visible:outline-[var(--vpl-accent)]"
+              />
+            </div>
+          )}
         </aside>
       </div>
     </div>

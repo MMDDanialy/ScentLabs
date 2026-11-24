@@ -22,7 +22,7 @@ for (const preset of ATELIER_PRESETS) {
 export const en: TranslationResource = {
   brand: {
     name: 'Virtual Perfume Lab',
-    shortName: 'Virtual Perfume Lab',
+    shortName: 'Perfume Lab',
     subtitle: 'Creative Olfactory Studio',
     emblemAlt: 'Virtual Perfume Lab emblem',
     logoAlt: 'Virtual Perfume Lab official logo',
@@ -184,6 +184,7 @@ export const en: TranslationResource = {
     },
     browseLayerNotes: 'Browse {{layer}} notes',
     revealCta: 'Reveal My Fragrance',
+    jumpToVessel: 'Vessel & Balance',
   },
   reveal: {
     distillingEyebrow: 'Distillation & Full-Catalog Match Analysis',
@@ -202,6 +203,8 @@ export const en: TranslationResource = {
     defaultAlchemist: 'Atelier Guest',
     familySuffix: '{{family}} Family',
     critiqueTitle: 'Olfactory Critique',
+    critiqueBadgeAi: 'Gemini AI',
+    critiqueBadgeDeterministic: 'Deterministic Engine',
     critiqueAiSubtitle:
       'AI-assisted editorial critique grounded in your active formula & matched catalog profile',
     critiqueDeterministicSubtitle: 'Deterministic atelier critique grounded in your active formula',
@@ -250,6 +253,9 @@ export const en: TranslationResource = {
     pngExported: 'PNG Exported',
     copySummary: 'Copy Summary',
     summaryCopied: 'Summary Copied',
+    clipboardFallbackTitle: 'Manual Copy Summary',
+    clipboardFallbackHint: 'Automatic clipboard access was blocked by your browser. Copy the summary text below manually.',
+    clipboardClose: 'Dismiss',
     saveToLibrary: 'Save to Library',
     savedToLibrary: 'Saved to Atelier Library',
     lowMatchNotice:
@@ -260,12 +266,17 @@ export const en: TranslationResource = {
     eyebrow: 'Local Archive',
     title: 'Saved Creations ({{count}})',
     closeAria: 'Close saved library',
+    localOnlyNotice: 'Stored privately in this browser (localStorage only — not synced to a cloud account).',
     emptyTitle: 'Your archive is empty',
     emptyDescription:
       'Compose a blend in the laboratory, reveal your fragrance, and save its Fragrance Identity Passport to revisit it here.',
     loadInLab: 'Load in Lab',
     viewPassport: 'View Passport',
+    duplicate: 'Duplicate',
+    duplicateSuffix: 'Copy',
     deleteAria: "Delete '{{name}}'",
+    confirmDelete: 'Confirm',
+    cancelDelete: 'Cancel',
     bespoke: 'Bespoke',
   },
   admin: {

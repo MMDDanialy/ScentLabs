@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { BookOpen, Trash2, X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { BookOpen, CopyPlus, Trash2, X } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import type { PassportData } from '../types/fragrance';
 
@@ -9,6 +9,7 @@ interface LibraryDrawerOrModalProps {
   onClose: () => void;
   onLoadInLab: (item: PassportData) => void;
   onOpenPassport: (item: PassportData) => void;
+  onDuplicate: (item: PassportData) => void;
   onDelete: (id: string) => void;
 }
 
@@ -18,12 +19,17 @@ export const LibraryDrawerOrModal: React.FC<LibraryDrawerOrModalProps> = ({
   onClose,
   onLoadInLab,
   onOpenPassport,
+  onDuplicate,
   onDelete,
 }) => {
   const { dict, formatDate, formatNumber, getFamilyLabel, locale, t } = useI18n();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      setConfirmDeleteId(null);
+      return;
+    }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -46,27 +52,32 @@ export const LibraryDrawerOrModal: React.FC<LibraryDrawerOrModalProps> = ({
       }}
     >
       <div className="w-full max-w-md bg-[var(--vpl-bg-modal)] border-s border-[var(--vpl-border-gold)] h-full flex flex-col text-start">
-        <div className="px-6 py-5 border-b border-[var(--vpl-border)] flex items-center justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--vpl-accent)]">
-              {dict.library.eyebrow}
-            </p>
-            <h2
-              id="library-drawer-title"
-              className="font-serif text-2xl font-semibold text-[var(--vpl-text)]"
-            >
-              {t('library.title', { count: formatNumber(items.length) })}
-            </h2>
-          </div>
+        <div className="px-6 py-5 border-b border-[var(--vpl-border)] space-y-2">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--vpl-accent)]">
+                {dict.library.eyebrow}
+              </p>
+              <h2
+                id="library-drawer-title"
+                className="font-serif text-2xl font-semibold text-[var(--vpl-text)]"
+              >
+                {t('library.title', { count: formatNumber(items.length) })}
+              </h2>
+            </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={dict.library.closeAria}
-            className="p-2 rounded-lg border border-[var(--vpl-border)] text-[var(--vpl-text-body)] hover:text-[var(--vpl-text)] hover:border-[var(--vpl-border-gold)] cursor-pointer"
-          >
-            <X className="w-4 h-4" aria-hidden="true" />
-          </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={dict.library.closeAria}
+              className="p-2 rounded-lg border border-[var(--vpl-border)] text-[var(--vpl-text-body)] hover:text-[var(--vpl-text)] hover:border-[var(--vpl-border-gold)] cursor-pointer"
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+          <p className="text-[11px] text-[var(--vpl-text-muted)] leading-relaxed">
+            {dict.library.localOnlyNotice}
+          </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -91,6 +102,7 @@ export const LibraryDrawerOrModal: React.FC<LibraryDrawerOrModalProps> = ({
               const famLabel = item.balance.dominantFamily
                 ? getFamilyLabel(item.balance.dominantFamily)
                 : dict.library.bespoke;
+              const isConfirming = confirmDeleteId === item.id;
 
               return (
                 <article
@@ -129,29 +141,60 @@ export const LibraryDrawerOrModal: React.FC<LibraryDrawerOrModalProps> = ({
                     ) : null}
                   </div>
 
-                  <div className="flex items-center gap-2 pt-2 border-t border-[var(--vpl-border-subtle)]">
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--vpl-border-subtle)]">
                     <button
                       type="button"
                       onClick={() => onLoadInLab(item)}
-                      className="flex-1 px-3 py-2 rounded-lg bg-[var(--vpl-accent-soft)] border border-[var(--vpl-border-gold)] text-xs font-medium text-[var(--vpl-text)] hover:bg-[var(--vpl-accent)] hover:text-[var(--vpl-accent-text-on-fill)] transition-colors cursor-pointer whitespace-nowrap"
+                      className="flex-1 min-w-[96px] px-3 py-2 rounded-lg bg-[var(--vpl-accent-soft)] border border-[var(--vpl-border-gold)] text-xs font-medium text-[var(--vpl-text)] hover:bg-[var(--vpl-accent)] hover:text-[var(--vpl-accent-text-on-fill)] transition-colors cursor-pointer whitespace-nowrap"
                     >
                       {dict.library.loadInLab}
                     </button>
                     <button
                       type="button"
                       onClick={() => onOpenPassport(item)}
-                      className="flex-1 px-3 py-2 rounded-lg border border-[var(--vpl-border)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-border-gold)] transition-colors cursor-pointer whitespace-nowrap"
+                      className="flex-1 min-w-[96px] px-3 py-2 rounded-lg border border-[var(--vpl-border)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-border-gold)] transition-colors cursor-pointer whitespace-nowrap"
                     >
                       {dict.library.viewPassport}
                     </button>
                     <button
                       type="button"
-                      onClick={() => onDelete(item.id)}
-                      aria-label={t('library.deleteAria', { name: item.fragranceName })}
-                      className="p-2 rounded-lg border border-[var(--vpl-border)] text-[var(--vpl-text-muted)] hover:text-[var(--vpl-danger)] hover:border-[var(--vpl-danger-border)] transition-colors cursor-pointer"
+                      onClick={() => onDuplicate(item)}
+                      aria-label={`${dict.library.duplicate} ${item.fragranceName}`}
+                      title={dict.library.duplicate}
+                      className="p-2 rounded-lg border border-[var(--vpl-border)] text-[var(--vpl-text-muted)] hover:text-[var(--vpl-accent)] hover:border-[var(--vpl-border-gold)] transition-colors cursor-pointer"
                     >
-                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                      <CopyPlus className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
+                    {isConfirming ? (
+                      <div className="flex items-center gap-1.5 w-full pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDelete(item.id);
+                            setConfirmDeleteId(null);
+                          }}
+                          className="flex-1 px-2.5 py-1.5 rounded-lg bg-[var(--vpl-danger-bg)] border border-[var(--vpl-danger-border)] text-xs font-medium text-[var(--vpl-danger-text)] cursor-pointer whitespace-nowrap"
+                        >
+                          {dict.library.confirmDelete}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2.5 py-1.5 rounded-lg border border-[var(--vpl-border)] text-xs text-[var(--vpl-text-muted)] cursor-pointer whitespace-nowrap"
+                        >
+                          {dict.library.cancelDelete}
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(item.id)}
+                        aria-label={t('library.deleteAria', { name: item.fragranceName })}
+                        className="p-2 rounded-lg border border-[var(--vpl-border)] text-[var(--vpl-text-muted)] hover:text-[var(--vpl-danger)] hover:border-[var(--vpl-danger-border)] transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                      </button>
+                    )}
                   </div>
                 </article>
               );

@@ -231,7 +231,12 @@ export class CatalogRepository {
         ? raw.concentration.trim()
         : null;
     const releaseYear =
-      typeof raw.year === 'number' && Number.isFinite(raw.year) ? raw.year : null;
+      typeof raw.year === 'number' &&
+      Number.isFinite(raw.year) &&
+      raw.year >= 1700 &&
+      raw.year <= 2030
+        ? Math.round(raw.year)
+        : null;
 
     const id =
       (raw.id ?? '').trim() ||

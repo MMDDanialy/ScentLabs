@@ -1,0 +1,1040 @@
+# VIRTUAL PERFUME LAB
+# ENGINEERING HARDENING, MATCHING ENGINE REFINEMENT & COMPREHENSIVE QA
+
+## PROJECT CONTEXT
+
+You are working on the existing Virtual Perfume Lab application in Google AI Studio Build Mode.
+
+Live application:
+https://virtual-perfume-lab.ai.studio/
+
+This project has already undergone significant development.
+
+The current application includes:
+
+- Official Virtual Perfume Lab branding and logo.
+- English and Persian language support.
+- RTL layout for Persian.
+- Dark, Light, and System appearance modes.
+- Scent Identity Discovery.
+- Interactive Virtual Perfume Laboratory.
+- 27 curated fragrance materials.
+- A reference fragrance catalogue reported to contain 1,479 perfume records.
+- Fragrance composition calculations.
+- Balance diagnostics.
+- Dynamic fragrance matching.
+- AI-style fragrance analysis and Reveal experience.
+- Fragrance Identity Passport.
+- Starter fragrance accords.
+- Search and filtering.
+- Undo and Reset functionality.
+- PNG export and Copy Summary actions.
+
+Your task is NOT to rebuild this application.
+
+Your task is to perform a comprehensive engineering audit, identify the remaining defects, correct them, and validate the application through repeatable testing.
+
+Preserve the existing visual identity, functional components, architecture, and successful improvements.
+
+Do not replace working functionality unnecessarily.
+
+The primary goal is to transform the current application into a reliable, technically consistent, and commercially credible product.
+
+---
+
+# PHASE 1 — COMPLETE SOURCE CODE AUDIT
+
+Before making changes, inspect the existing source code and understand the actual implementation.
+
+Do not rely exclusively on the visual interface.
+
+Inspect:
+
+- Component architecture.
+- Fragrance composition state management.
+- Note catalog and reference perfume data structures.
+- Database access and data normalization.
+- Matching and ranking algorithms.
+- AI integration.
+- Fragrance analysis and naming logic.
+- Translation resources.
+- RTL implementation.
+- Theme system.
+- Fragrance Passport generation.
+- PNG export implementation.
+- Clipboard integration.
+- Saved Library persistence.
+- Responsive layout.
+- Error handling.
+- Environment configuration.
+
+Identify:
+
+1. Confirmed defects.
+2. Weak or unreliable implementations.
+3. Potential data inconsistencies.
+4. Performance bottlenecks.
+5. Unverified functionality.
+6. Architectural risks.
+
+Create an internal defect register with severity levels:
+
+- P0: Critical functional or data-integrity problem.
+- P1: Major product-quality problem.
+- P2: Moderate usability or reliability problem.
+- P3: Minor refinement.
+
+Do not report something as broken simply because it has not yet been tested.
+
+Distinguish confirmed defects from unverified assumptions.
+
+After the audit, proceed with implementation. Do not stop after writing an audit report.
+
+---
+
+# PHASE 2 — CRITICAL: FRAGRANCE SIMILARITY ENGINE REFINEMENT
+
+This is the highest-priority engineering task.
+
+## 2.1 — Observed Problem
+
+External functional testing was performed using three substantially different fragrance compositions.
+
+The system returned different reference perfumes for the different compositions, which indicates that matching is responding to the selected note profile.
+
+However, a controlled experiment revealed an important weakness.
+
+Two formulas used exactly the same three notes:
+
+- Calabrian Bergamot.
+- Haute-Provence Lavender.
+- Mysore Sandalwood.
+
+Formula A:
+
+- Bergamot: 1 drop.
+- Lavender: 1 drop.
+- Sandalwood: 1 drop.
+
+Tier distribution:
+
+- Top: 33%.
+- Heart: 33%.
+- Base: 34%.
+
+Formula B:
+
+- Bergamot: 6 drops.
+- Lavender: 1 drop.
+- Sandalwood: 1 drop.
+
+Tier distribution:
+
+- Top: 75%.
+- Heart: 12.5%.
+- Base: 12.5%.
+
+Yet the top two results remained exactly the same:
+
+| Reference perfume | Formula A | Formula B |
+|---|---:|---:|
+| Obsession — Calvin Klein | 76% | 76% |
+| Sandalo — Acqua di Parma | 75% | 75% |
+
+The remaining rankings changed only slightly.
+
+This suggests that the current algorithm may rely too heavily on note presence and insufficiently account for relative composition proportions.
+
+This is an observed behavioral weakness, not a confirmed explanation of the source-code implementation.
+
+Your job is to investigate the actual cause and correct it.
+
+## 2.2 — Inspect the Existing Scoring Implementation
+
+Inspect the complete matching implementation.
+
+Determine:
+
+- Whether note presence is treated as binary.
+- Whether note proportions influence scores.
+- Whether Top, Heart, and Base positions influence scores independently.
+- Whether family and accord similarity influence results.
+- Whether missing notes are penalized appropriately.
+- Whether additional reference notes are handled appropriately.
+- Whether incomplete reference records receive artificially high scores.
+- Whether scores are calibrated or simply arbitrary weighted values.
+- Whether the result ranking considers all eligible reference records.
+- Whether cached results or static candidate arrays interfere with matching.
+
+Remove hardcoded result selection and any logic that produces misleadingly repetitive recommendations.
+
+Do not merely change the returned perfume names.
+
+## 2.3 — Build a More Sophisticated Composition-Aware Algorithm
+
+The matching engine must consider the user's complete virtual formula.
+
+Each selected note must have:
+
+- A canonical note identifier.
+- A normalized note identity.
+- Its fragrance pyramid tier.
+- Its absolute drop count.
+- Its relative composition share.
+- Its associated olfactory family.
+- Its available descriptive attributes.
+
+Calculate relative shares deterministically.
+
+For every composition:
+
+\[
+p_i = \frac{d_i}{\sum_j d_j}
+\]
+
+Where:
+
+- \(d_i\) is the drop count of note \(i\).
+- \(p_i\) is its normalized relative share.
+
+All composition shares must sum to 100%, subject only to display rounding.
+
+### Required Matching Dimensions
+
+Develop a hybrid similarity model that evaluates:
+
+1. Exact note overlap.
+2. Note-level weighted overlap.
+3. Top / Heart / Base alignment.
+4. Relative composition distribution.
+5. Olfactory family similarity.
+6. Main and secondary accord similarity.
+7. Descriptive facet similarity.
+8. Missing-note penalties.
+9. Additional-reference-note penalties.
+10. Reference data completeness and reliability.
+
+Do not treat all matching notes as equally important when the user's composition assigns them substantially different shares.
+
+A note contributing 75% of the user's virtual composition should have a different impact from a note contributing 12.5%.
+
+However, there is a crucial data limitation:
+
+Public perfume databases usually document whether a note appears in a perfume's pyramid, not its actual ingredient concentration or precise formula percentage.
+
+Do not fabricate undisclosed reference perfume proportions.
+
+Use the user's actual composition shares as weights when evaluating note overlap, and use the documented reference profile structure for comparison.
+
+Distinguish clearly between:
+
+- Exact documented note matches.
+- Tier-aligned matches.
+- Olfactory family similarities.
+- Semantic or descriptive similarities.
+
+Do not present unsupported similarities as exact matches.
+
+### Scoring Architecture
+
+Design a documented, configurable scoring model.
+
+Prefer a mathematically explainable hybrid scoring approach.
+
+The algorithm should account for:
+
+- Weighted overlap based on user composition shares.
+- Tier-aware note correspondence.
+- Family and accord compatibility.
+- Penalties for significant differences.
+- Confidence reduction for incomplete reference data.
+
+Define an explicit calculation model and document the purpose of each component.
+
+Do not choose arbitrary weights merely to produce attractive percentages.
+
+Use empirical validation and a documented calibration process.
+
+The score must represent an estimated fragrance-profile similarity, not the probability that two physical perfumes smell identical.
+
+If the available data cannot justify a precise percentage, communicate the uncertainty instead of displaying misleading precision.
+
+## 2.4 — Ratio Sensitivity Requirements
+
+The controlled 1/1/1 versus 6/1/1 experiment must become a permanent regression test.
+
+The scoring implementation must genuinely use the relative weights of the user's notes.
+
+A substantial change in composition must be reflected in the candidate scoring wherever the reference data provides sufficient information to discriminate between candidates.
+
+Do not artificially force every ranking to change.
+
+For some candidates, identical rankings may be mathematically justified.
+
+However:
+
+- Contribution breakdowns must change when the relevant inputs change.
+- Scores must be recalculated from the new composition.
+- Candidate ranking must be determined by the actual new scores.
+- Identical rankings must be explainable through matching feature contributions, not caused by ignored inputs or cached results.
+
+The testing system must be capable of proving that relative note weights participate in scoring.
+
+## 2.5 — Candidate Retrieval and Ranking
+
+Search the entire active, searchable reference catalogue.
+
+The reported catalogue contains approximately 1,479 records.
+
+Verify the actual number of valid searchable records from the current database.
+
+Do not confuse imported records, incomplete records, indexed records, and valid matching candidates.
+
+Implement appropriate indexing and efficient retrieval.
+
+Return up to 5–10 meaningful matches when sufficient candidates exist.
+
+Every candidate must be ranked dynamically.
+
+Do not force a fixed number of recommendations when the evidence is insufficient.
+
+Provide:
+
+- Perfume name.
+- Brand.
+- Estimated similarity score.
+- Shared notes.
+- Key differences.
+- Pyramid alignment.
+- Main matching characteristics.
+- Reference data completeness.
+- Source information.
+
+Use a consistent, explainable ranking method.
+
+---
+
+# PHASE 3 — MATCH DATA CONSISTENCY AND VALIDATION
+
+A second issue was observed during external testing.
+
+One match result incorrectly included a note as both:
+
+- A shared note.
+- A missing or divergent note.
+
+This is a data consistency defect.
+
+Correct the matching result generation architecture.
+
+## 3.1 — Canonical Note Identity
+
+Use canonical note IDs to compare reference and user compositions.
+
+Do not rely on raw display-name string comparison.
+
+Normalize aliases and spelling variations without merging genuinely different materials.
+
+## 3.2 — Derive All Result Lists From One Data Model
+
+Shared notes, missing notes, additional notes, and tier differences must all be calculated from the same normalized comparison result.
+
+Use logically defined sets.
+
+For example:
+
+- Shared Notes = User Notes ∩ Reference Notes.
+- User-Only Notes = User Notes − Reference Notes.
+- Reference-Only Notes = Reference Notes − User Notes.
+
+A note must never belong to contradictory categories.
+
+## 3.3 — Runtime Validation
+
+Before displaying each match, validate:
+
+- No duplicate notes in any category.
+- No note appears simultaneously as shared and missing.
+- Every shared note exists in both profiles.
+- Every user-only note exists in the user's composition.
+- Every reference-only note exists in the reference record.
+- Pyramid tier assignments are consistent.
+- Percentages and score values are valid.
+- Missing reference data is not treated as a confirmed absence.
+
+If validation fails, prevent the incorrect result from being presented and log the underlying issue.
+
+Do not silently produce contradictory analysis.
+
+---
+
+# PHASE 4 — FRAGRANCE IDENTITY AND AUTOMATIC NAMING
+
+During testing, different compositions sometimes received very similar automatically generated names, such as "Nocturne Bergamot."
+
+Improve the naming engine.
+
+The generated name should reflect the actual fragrance composition.
+
+Consider:
+
+- Dominant fragrance family.
+- Dominant accord.
+- Relative note shares.
+- Warmth and freshness characteristics.
+- Descriptive facets.
+- Overall composition identity.
+
+Do not repeatedly produce generic names regardless of the user's formula.
+
+Generate diverse, composition-aware suggestions.
+
+Allow users to edit the fragrance name before creating their final Passport.
+
+Do not make a generated name appear to be a scientific classification.
+
+Preserve the creator's ability to personalize the final identity.
+
+---
+
+# PHASE 5 — DATABASE INTEGRITY AND FRAGRANCE CATALOGUE
+
+The application currently reports a reference database of approximately 1,479 perfumes.
+
+Audit the real data.
+
+Verify:
+
+- Actual record count.
+- Valid record count.
+- Duplicate records.
+- Missing perfume names.
+- Missing brand names.
+- Missing note pyramids.
+- Incorrect note assignments.
+- Incorrect tier assignments.
+- Canonical note mapping.
+- Data-source metadata.
+- Licensing and attribution fields, where available.
+- Search index coverage.
+
+Do not inflate catalogue statistics.
+
+Do not invent missing fragrance data.
+
+Do not silently interpret an absent reference note as proof that the perfume does not contain that material.
+
+Preserve the existing legal data provenance and licensing requirements.
+
+Where data quality is incomplete, represent it explicitly.
+
+A reference record with incomplete documentation must have a lower confidence level.
+
+Make sure the matching engine can distinguish:
+
+- Verified note presence.
+- Missing documentation.
+- Explicitly documented absence, if available.
+
+Do not compromise commercial data rights to increase catalogue size.
+
+---
+
+# PHASE 6 — AI ANALYSIS AND SCIENTIFIC TRANSPARENCY
+
+Inspect the existing AI integration.
+
+The external interface test showed that the Olfactory Critique can produce deterministic, rule-based text.
+
+It did not establish whether an actual Gemini API call is being made.
+
+Inspect the source code and determine the actual implementation.
+
+### If Gemini is connected:
+
+Use Gemini as the natural-language interpretation layer.
+
+It may:
+
+- Explain the composition.
+- Describe the fragrance profile.
+- Interpret calculated similarity results.
+- Explain matching strengths and differences.
+- Generate personalized fragrance descriptions.
+
+It must not invent:
+
+- Reference perfumes.
+- Fragrance notes.
+- Similarity scores.
+- Undisclosed formula percentages.
+- Physical longevity.
+- Projection.
+- Sillage measurements.
+
+The deterministic matching engine must remain the authoritative source for reference selection and numeric scores.
+
+Validate structured AI responses before displaying them.
+
+### If Gemini is not connected:
+
+Do not claim that the product is using live Gemini analysis.
+
+Maintain an honest deterministic fallback.
+
+Clearly distinguish rule-based analysis from AI-generated interpretation.
+
+### Scientific Accuracy
+
+Clearly communicate that:
+
+- This is a virtual fragrance composition experience.
+- Composition shares are creative relative proportions.
+- They are not physical chemical formulations.
+- Reference similarity is an algorithmic estimate.
+- The application does not physically smell or test perfume.
+- No physical safety or regulatory compliance is certified by the platform.
+
+Preserve the existing disclaimers.
+
+---
+
+# PHASE 7 — FRAGRANCE PASSPORT EXPORT AND CLIPBOARD RELIABILITY
+
+External testing showed:
+
+- The Download PNG button changed to "PNG Exported".
+- The Copy Summary button changed to "Summary Copied".
+
+However, the actual downloaded file and clipboard contents could not be independently inspected.
+
+Audit and verify the actual implementations.
+
+## 7.1 — PNG Export
+
+Ensure that the PNG export generates a valid image containing the complete Fragrance Identity Passport.
+
+Verify:
+
+- Actual image generation.
+- Non-empty image content.
+- Correct image MIME type.
+- Correct file extension.
+- Appropriate resolution.
+- Proper font rendering.
+- Correct logo rendering.
+- No clipped elements.
+- No missing notes.
+- No broken Persian typography.
+- Correct RTL layout.
+- Correct display in both Light and Dark themes.
+
+The exported image must contain the actual rendered Passport, not a blank canvas or an incomplete screenshot.
+
+Ensure fonts and assets have finished loading before capture.
+
+Use an appropriate and maintainable image-generation implementation.
+
+Do not report export success solely because a button's state changed.
+
+## 7.2 — Copy Summary
+
+Ensure the clipboard contains a real, useful text summary of the current fragrance.
+
+Include:
+
+- Perfume name.
+- Creator name.
+- Fragrance family.
+- Top notes.
+- Heart notes.
+- Base notes.
+- Relative composition proportions.
+- Closest reference matches, where available.
+- Estimated similarity scores.
+- Appropriate disclaimer.
+
+Ensure copied content respects the active language.
+
+Handle clipboard permission failures gracefully.
+
+Provide a usable manual-copy fallback when clipboard access is unavailable.
+
+Test actual clipboard contents where the testing environment permits it.
+
+---
+
+# PHASE 8 — SAVED LIBRARY AND DATA PERSISTENCE
+
+Previous external testing could not establish durable persistence of anonymous user compositions.
+
+Inspect the actual Saved Library implementation.
+
+Verify:
+
+- Saving a fragrance.
+- Loading a saved fragrance.
+- Reopening a composition.
+- Editing a saved composition.
+- Duplicating a formula.
+- Deleting a saved item with confirmation.
+- Preserving the original formula.
+- Preserving historical analysis and match results.
+- Correct Library counter updates.
+
+Use the existing supported persistence infrastructure.
+
+If a real backend is available, preserve proper user isolation and server-side authorization.
+
+If only browser-local persistence is available, clearly distinguish local storage from cloud synchronization.
+
+Never display fake cloud synchronization or claim cross-device persistence without implementing it.
+
+Do not lose the current composition when changing language or theme.
+
+Preserve formula versions so future changes to the fragrance database do not silently rewrite previously saved creations.
+
+---
+
+# PHASE 9 — PERSIAN, RTL, AND THEME REGRESSION
+
+Previous testing confirmed that the following capabilities were working:
+
+- English.
+- Persian.
+- RTL.
+- Dark Mode.
+- Light Mode.
+- System Theme.
+
+Language and theme switching also preserved the active composition.
+
+These are successful improvements.
+
+Do not rewrite them unnecessarily.
+
+Preserve their existing behavior.
+
+Run regression tests on:
+
+1. English + Dark.
+2. English + Light.
+3. Persian + Dark.
+4. Persian + Light.
+5. System theme with both supported languages.
+
+Verify:
+
+- Complete translations.
+- Consistent terminology.
+- Correct directional layout.
+- Mixed Persian/Latin text.
+- Persian numerals and dates.
+- Percentage formatting.
+- Logo placement.
+- Buttons and icons.
+- Passport layout.
+- Match cards.
+- Mobile alignment.
+
+Proper perfume names, brand names, and system identifiers should remain in their original spelling where appropriate.
+
+Any new interface text introduced during this work must be translated into both languages.
+
+Do not introduce untranslated interface strings.
+
+---
+
+# PHASE 10 — RESPONSIVE DESIGN AND MOBILE QA
+
+Mobile behavior has not yet been independently verified.
+
+This must be tested.
+
+Inspect and validate the following viewport sizes:
+
+- Mobile: 390 × 844.
+- Mobile: 375 × 812.
+- Tablet: 768 × 1024.
+- Desktop: 1280 × 800.
+- Large desktop: 1440 × 900.
+
+If a browser viewport is unavailable, use available responsive testing and source-level validation.
+
+Check:
+
+- Header navigation.
+- Language selector.
+- Theme controls.
+- Logo scaling.
+- Hero section.
+- Discovery cards.
+- Laboratory note catalogue.
+- Vessel diagnostics.
+- Search and filters.
+- Reveal page.
+- Fragrance Passport.
+- Export controls.
+
+Ensure:
+
+- No horizontal overflow.
+- No overlapping controls.
+- No clipped text.
+- No inaccessible buttons.
+- No excessively small touch targets.
+- No broken grid layouts.
+- No unreadable typography.
+
+On mobile, reorganize the Laboratory interface appropriately rather than simply shrinking the desktop two-column layout.
+
+Preserve the luxury appearance.
+
+---
+
+# PHASE 11 — FUNCTIONAL REGRESSION TESTS
+
+The following existing features passed previous external tests.
+
+Preserve them and verify that they continue working after the modifications.
+
+### Fragrance Composition
+
+- Adding one drop.
+- Adding three drops.
+- Removing drops.
+- Total drop calculation.
+- Note-level percentage calculation.
+- Top / Heart / Base normalization.
+- Balance diagnostics.
+
+### Laboratory Controls
+
+- Note search.
+- Family filter.
+- Pyramid layer filter.
+- Starter Accord loading.
+- Undo.
+- Reset.
+- Audio toggle.
+
+### Navigation
+
+- Scent Discovery → Laboratory.
+- Laboratory → Reveal & Passport.
+- Reveal & Passport → Laboratory.
+
+### State Integrity
+
+- Formula survives navigation.
+- Formula survives language switching.
+- Formula survives theme switching.
+- Saved formulas preserve their original composition.
+
+Do not allow matching-engine improvements to break any of these features.
+
+---
+
+# PHASE 12 — CONTROLLED MATCHING VALIDATION SUITE
+
+Create repeatable test fixtures and automated tests.
+
+The following scenarios are mandatory.
+
+## TEST 1 — Fresh Citrus / Aromatic
+
+Composition:
+
+- Calabrian Bergamot: 1.
+- Ruby Grapefruit: 1.
+- Tunisian Neroli: 1.
+- Haute-Provence Lavender: 1.
+- Silk White Musk: 1.
+
+Expected behavior:
+
+- Correctly recognize a predominantly fresh/citrus/aromatic profile.
+- Return reference perfumes based on the complete composition.
+- Explain shared characteristics and differences.
+
+## TEST 2 — Floral / Sweet
+
+Composition:
+
+- Calabrian Bergamot: 1.
+- Damask Rose: 1.
+- Jasmine Sambac: 1.
+- Florentine Iris Butter: 1.
+- Madagascar Vanilla Absolute: 1.
+- Venezuelan Tonka Bean: 1.
+
+Expected behavior:
+
+- Recognize the floral and sweet characteristics.
+- Reflect the actual heart and base structure.
+- Return appropriate dynamically ranked reference profiles.
+
+## TEST 3 — Dark Woody / Smoky / Spicy
+
+Composition:
+
+- Pink Peppercorn: 1.
+- Kashmir Saffron: 1.
+- Ceylon Cinnamon Bark: 1.
+- Green Cardamom: 1.
+- Dark Agarwood Smoke: 1.
+- Aged Indonesian Patchouli: 1.
+- Mysore Sandalwood: 1.
+
+Expected behavior:
+
+- Recognize the woody, smoky, spicy and resinous characteristics.
+- Return relevant reference profiles.
+- Explain actual shared and differing notes.
+
+## TEST 4 — Ratio Sensitivity
+
+Create two compositions using identical note identities:
+
+Formula A:
+
+- Calabrian Bergamot: 1.
+- Haute-Provence Lavender: 1.
+- Mysore Sandalwood: 1.
+
+Formula B:
+
+- Calabrian Bergamot: 6.
+- Haute-Provence Lavender: 1.
+- Mysore Sandalwood: 1.
+
+Verify:
+
+- Composition shares are different.
+- Matching calculations are recomputed.
+- Weighted feature contributions are different where mathematically relevant.
+- Scores reflect the altered inputs.
+- Ranking changes when supported by candidate differences.
+- Identical rankings are allowed only when the calculated evidence justifies them.
+
+Do not artificially force a different result.
+
+## TEST 5 — Contradictory Note Detection
+
+Construct cases where:
+
+- A selected user note exists in the reference record.
+- A selected user note does not exist in the reference record.
+- A reference note is not selected by the user.
+- A reference record has incomplete documentation.
+
+Verify that shared and divergent categories are mutually consistent.
+
+## TEST 6 — Empty Composition
+
+Verify that an empty formula cannot produce fabricated fragrance matches.
+
+## TEST 7 — Single-Tier Composition
+
+Create a composition using notes from only one tier.
+
+Verify that diagnostics and matching explain the structural limitation accurately.
+
+## TEST 8 — Database Expansion
+
+Add a valid reference record to a test database.
+
+Verify that it becomes eligible for matching without adding its name to a hardcoded candidate list.
+
+## TEST 9 — Low-Confidence Reference
+
+Use an incomplete reference record.
+
+Verify that the system communicates its reduced reliability.
+
+## TEST 10 — Repeatability
+
+Run the exact same formula repeatedly against the same database version.
+
+Verify that deterministic matching produces consistent scores and rankings, unless a documented data or algorithm version has changed.
+
+---
+
+# PHASE 13 — TECHNICAL QUALITY AND SECURITY
+
+Run all appropriate available checks:
+
+- Type checking.
+- Linting.
+- Unit tests.
+- Integration tests.
+- End-to-end tests.
+- Database integrity checks.
+- Build validation.
+- Runtime error inspection.
+- Network request inspection.
+- Performance profiling where available.
+
+Inspect for:
+
+- Unhandled exceptions.
+- Failed API requests.
+- Exposed API keys.
+- Incorrect client/server boundaries.
+- Duplicate event handlers.
+- Stale state.
+- Race conditions.
+- Broken loading states.
+- Unnecessary repeated database queries.
+- Incorrect caching.
+- Unauthorized access to private user data.
+
+Keep sensitive keys and credentials server-side.
+
+Do not introduce paid external dependencies without documenting their cost and requiring owner approval.
+
+Do not make external purchases, activate live payments, or incur advertising costs.
+
+---
+
+# PHASE 14 — IMPLEMENTATION STRATEGY
+
+Proceed in a dependency-aware order.
+
+Priority 1:
+- Inspect the matching engine.
+- Correct ratio-sensitive scoring.
+- Correct note-set consistency.
+- Validate matching outputs.
+
+Priority 2:
+- Improve fragrance naming.
+- Audit reference database integrity.
+- Improve confidence and provenance handling.
+
+Priority 3:
+- Verify and fix Passport PNG export.
+- Verify clipboard functionality.
+- Correct Saved Library persistence where necessary.
+
+Priority 4:
+- Mobile responsiveness.
+- Persian/RTL and theme regression.
+- General accessibility and performance.
+
+Priority 5:
+- Full functional regression and final release readiness.
+
+Work on independent tasks in parallel where appropriate.
+
+Avoid unnecessary rewrites.
+
+If a major architectural change is required, explain its rationale before implementing it.
+
+Do not silently remove working features.
+
+Do not stop after presenting another plan.
+
+Once the source audit is complete, proceed with the actual fixes.
+
+---
+
+# PHASE 15 — FINAL ACCEPTANCE CRITERIA
+
+The project is not complete until the following conditions are satisfied:
+
+### Matching Engine
+- Relative note proportions genuinely influence weighted matching.
+- Pyramid layers are handled correctly.
+- Reference candidates are dynamically retrieved.
+- Scores are explainable and consistently calculated.
+- Incomplete reference data reduces confidence.
+- Shared and missing notes never contradict each other.
+
+### Fragrance Experience
+- Automatic names reflect the actual composition.
+- Composition calculations remain correct.
+- Laboratory interactions remain functional.
+- Reveal results use the active composition.
+
+### Passport
+- PNG export produces a valid image of the actual Passport.
+- Clipboard contains a validated and useful summary.
+- Persian and English outputs work correctly.
+
+### Persistence
+- Saved Library uses real persistence.
+- Saved formulas can be reopened and edited.
+- Historical versions remain stable.
+
+### Localization and Appearance
+- Both languages remain fully supported.
+- RTL remains correct.
+- Dark, Light, and System remain functional.
+- Formula state survives preference changes.
+
+### Responsiveness
+- Mobile, tablet, and desktop layouts are tested.
+- No critical overflow or inaccessible controls remain.
+
+### Engineering
+- No critical regression.
+- No unresolved P0 defects.
+- All important P1 defects are corrected or explicitly documented with their blocking dependencies.
+- Build, tests and runtime checks pass where supported.
+
+Do not claim that an acceptance criterion has passed without actual test evidence.
+
+---
+
+# FINAL REPORT
+
+After implementation, provide a concise but technically detailed final report.
+
+Include:
+
+1. Original defects identified.
+2. Root cause of each confirmed defect.
+3. Files and components modified.
+4. New matching algorithm and mathematical explanation.
+5. How relative composition weights influence scoring.
+6. Database integrity and searchable record counts.
+7. Changes to Shared / Divergent Notes validation.
+8. Fragrance naming improvements.
+9. PNG export verification results.
+10. Clipboard verification results.
+11. Saved Library persistence status.
+12. Persian and RTL regression results.
+13. Light / Dark / System theme regression results.
+14. Mobile responsiveness results.
+15. Automated tests executed and their pass/fail status.
+16. Remaining limitations and external dependencies.
+
+For every major issue, state:
+
+- Before.
+- Root cause.
+- Fix implemented.
+- Test performed.
+- Actual result.
+
+Clearly separate:
+
+- Fixed and tested.
+- Fixed but not fully verified.
+- Not fixed.
+- Blocked by an external dependency.
+
+Never report simulated or assumed success as verified success.
+
+# FINAL DIRECTIVE
+
+Virtual Perfume Lab already has a strong visual identity and a functional core experience.
+
+Do not sacrifice its existing quality through unnecessary redesign.
+
+The next step is engineering precision.
+
+The fragrance matching engine must become genuinely composition-aware, the analysis must remain internally consistent, and every advertised feature must behave as a real product capability.
+
+**Do not merely make the application look more complete. Make the underlying product more correct, reliable, measurable, and trustworthy.**

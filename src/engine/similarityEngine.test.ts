@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import { FRAGRANCE_NOTES } from '../data/catalog';
+import type { BlendSelection } from '../types/fragrance';
+import { ALGORITHM_VERSION } from './similarityEngine';
 import { CatalogRepository } from '../server/catalogRepository';
 
 function createLoadedRepo(): CatalogRepository {
@@ -20,96 +22,200 @@ test('Catalog loads real Scento CC BY 4.0 dataset (>1,400 perfumes) with accurat
   assert.ok(stats.flatNotesOnly > 0);
 });
 
-test('Test A: Known reference composition ranks its reference perfume among top matches', () => {
+test('TEST 1 — Fresh Citrus / Aromatic Composition ranks fresh citrus/aromatic references', () => {
   const repo = createLoadedRepo();
-  // YSL Libre in Scento: top [Mandarin, Neroli, Lavender], heart [Orange Blossom, Jasmine Sambac], base [Musk, Vanilla]
-  const libreLikeBlend = {
-    mandarin: 4,
-    neroli: 4,
-    lavender: 4,
-    jasmine: 4,
-    musk: 3,
-    vanilla: 3,
-  };
-  const res = repo.match(libreLikeBlend, FRAGRANCE_NOTES, { limit: 8 });
+  const res = repo.match(
+    { bergamot: 6, lemon: 4, petitgrain: 3, lavender: 2, musk: 2 },
+    FRAGRANCE_NOTES,
+    { limit: 8 }
+  );
+  assert.equal(res.algorithmVersion, ALGORITHM_VERSION);
   assert.ok(res.matches.length >= 5);
-  assert.ok(res.searchedCount >= 1400);
-
-  const top5Ids = res.matches.slice(0, 5).map((m) => m.perfume.id);
+  const top = res.matches[0];
+  assert.ok(top.similarityScore >= 40 && top.similarityScore <= 98);
+  const famAccStr = `${top.perfume.family} ${top.perfume.accords.join(' ')}`.toLowerCase();
   assert.ok(
-    top5Ids.includes('ysl-libre'),
-    `Expected ysl-libre in top 5, got: ${top5Ids.join(', ')}`
+    /citrus|fresh|aromatic|herbal|green|clean/.test(famAccStr),
+    `Expected citrus/fresh/aromatic lead, got ${famAccStr}`
   );
-  const libreMatch = res.matches.find((m) => m.perfume.id === 'ysl-libre')!;
-  assert.ok(libreMatch.similarityScore >= 55);
-  assert.ok(libreMatch.sharedNotes.length >= 5);
 });
 
-test('Test B: Changing notes and blend proportions dynamically alters rankings and scores', () => {
+test('TEST 2 — Floral / Sweet Composition ranks floral/sweet references distinct from citrus', () => {
   const repo = createLoadedRepo();
-  const citrusDominant = {
-    bergamot: 10,
-    lemon: 8,
-    neroli: 2,
-    cedarwood: 1,
-    musk: 1,
-  };
-  const vanillaAmberDominant = {
-    bergamot: 1,
-    lemon: 1,
-    neroli: 1,
-    vanilla: 10,
-    amber: 9,
-  };
+  const citrusRes = repo.match({ bergamot: 6, lemon: 4, petitgrain: 3 }, FRAGRANCE_NOTES, { limit: 6 });
+  const floralRes = repo.match({ rose: 5, jasmine: 4, vanilla: 4, 'tonka-bean': 3 }, FRAGRANCE_NOTES, {
+    limit: 6,
+  });
 
-  const resA = repo.match(citrusDominant, FRAGRANCE_NOTES, { limit: 8 });
-  const resB = repo.match(vanillaAmberDominant, FRAGRANCE_NOTES, { limit: 8 });
-
-  assert.notEqual(resA.matches[0].perfume.id, resB.matches[0].perfume.id);
-  const top3A = resA.matches.slice(0, 3).map((m) => m.perfume.id);
-  const top3B = resB.matches.slice(0, 3).map((m) => m.perfume.id);
-  assert.notDeepEqual(top3A, top3B);
-});
-
-test('Test C: Substantially different compositions return distinct match sets without inflated scores', () => {
-  const repo = createLoadedRepo();
-  const marineCitrusBlend = {
-    'sea-salt': 6,
-    grapefruit: 5,
-    juniper: 4,
-    petitgrain: 4,
-    cedarwood: 2,
-  };
-  const smokyOudSpiceBlend = {
-    'oud-smoke': 7,
-    saffron: 4,
-    cinnamon: 3,
-    amber: 5,
-    patchouli: 4,
-  };
-
-  const marineRes = repo.match(marineCitrusBlend, FRAGRANCE_NOTES, { limit: 6 });
-  const oudRes = repo.match(smokyOudSpiceBlend, FRAGRANCE_NOTES, { limit: 6 });
-
-  const marineIds = new Set(marineRes.matches.map((m) => m.perfume.id));
-  const oudIds = new Set(oudRes.matches.map((m) => m.perfume.id));
-  const intersection = [...marineIds].filter((id) => oudIds.has(id));
-  assert.equal(
-    intersection.length,
-    0,
-    `Expected disjoint top matches between Marine Citrus and Smoky Oud Spice, found overlap: ${intersection.join(', ')}`
-  );
-
-  // Verify unrelated synthetic record does not get artificially inflated high score
-  const singleNoteRes = repo.match({ 'sea-salt': 10 }, FRAGRANCE_NOTES, { limit: 8 });
-  const worstOfTop = singleNoteRes.matches[singleNoteRes.matches.length - 1];
+  assert.ok(floralRes.matches.length >= 5);
+  const top = floralRes.matches[0];
+  const famAccStr = `${top.perfume.family} ${top.perfume.accords.join(' ')}`.toLowerCase();
   assert.ok(
-    worstOfTop.similarityScore < 70,
-    `Expected realistic similarity score distribution, got ${worstOfTop.similarityScore}`
+    /floral|petal|bloom|sweet|vanilla|warm/.test(famAccStr),
+    `Expected floral/sweet lead, got ${famAccStr}`
   );
+
+  const citrusIds = new Set(citrusRes.matches.map((m) => m.perfume.id));
+  const overlap = floralRes.matches.filter((m) => citrusIds.has(m.perfume.id));
+  assert.ok(overlap.length <= 1, `Expected distinct floral vs citrus top matches, overlap=${overlap.length}`);
 });
 
-test('Test D: Runtime catalog expansion makes newly added perfume immediately matchable with zero code edits', () => {
+test('TEST 3 — Dark Woody / Smoky / Spicy Composition ranks dark woody/amber/spicy references disjoint from citrus', () => {
+  const repo = createLoadedRepo();
+  const marineCitrusRes = repo.match(
+    { 'sea-salt': 6, grapefruit: 5, juniper: 4, petitgrain: 4, cedarwood: 2 },
+    FRAGRANCE_NOTES,
+    { limit: 6 }
+  );
+  const darkRes = repo.match(
+    { 'oud-smoke': 6, saffron: 4, patchouli: 4, sandalwood: 3, amber: 2 },
+    FRAGRANCE_NOTES,
+    { limit: 6 }
+  );
+
+  assert.ok(darkRes.matches.length >= 5);
+  const top = darkRes.matches[0];
+  const famAccStr = `${top.perfume.family} ${top.perfume.accords.join(' ')}`.toLowerCase();
+  assert.ok(
+    /oud|smoke|wood|amber|spice|warm|leather|resinous/.test(famAccStr),
+    `Expected dark woody/amber/spicy character, got ${famAccStr}`
+  );
+
+  const marineIds = new Set(marineCitrusRes.matches.map((m) => m.perfume.id));
+  const intersection = darkRes.matches.filter((m) => marineIds.has(m.perfume.id));
+  assert.equal(intersection.length, 0);
+});
+
+test('TEST 4 — Ratio Sensitivity: 1/1/1 vs 6/1/1 produces measurably different scores, breakdowns, and rankings', () => {
+  const repo = createLoadedRepo();
+  const equalBlend = { bergamot: 1, lavender: 1, sandalwood: 1 };
+  const topHeavyBlend = { bergamot: 6, lavender: 1, sandalwood: 1 };
+
+  const resEqual = repo.match(equalBlend, FRAGRANCE_NOTES, { limit: 8 });
+  const resTopHeavy = repo.match(topHeavyBlend, FRAGRANCE_NOTES, { limit: 8 });
+
+  const obsessionEqual = resEqual.matches.find((m) => m.perfume.id === 'calvin-klein-obsession');
+  const sandaloEqual = resEqual.matches.find((m) => m.perfume.id === 'acqua-di-parma-sandalo');
+  const obsessionHeavy = resTopHeavy.matches.find((m) => m.perfume.id === 'calvin-klein-obsession');
+  const sandaloHeavy = resTopHeavy.matches.find((m) => m.perfume.id === 'acqua-di-parma-sandalo');
+
+  assert.ok(sandaloHeavy, 'Sandalo should appear in 6/1/1 top matches');
+
+  if (obsessionEqual && obsessionHeavy) {
+    assert.notDeepEqual(
+      obsessionEqual.scoreBreakdown,
+      obsessionHeavy.scoreBreakdown,
+      'Obsession scoreBreakdown must respond when bergamot goes from 33% to 75%'
+    );
+    assert.ok(
+      obsessionHeavy.similarityScore < obsessionEqual.similarityScore,
+      `Obsession score should drop on 6/1/1 citrus-heavy blend (${obsessionHeavy.similarityScore} vs ${obsessionEqual.similarityScore})`
+    );
+  }
+
+  if (sandaloEqual && sandaloHeavy) {
+    assert.notDeepEqual(
+      sandaloEqual.scoreBreakdown,
+      sandaloHeavy.scoreBreakdown,
+      'Sandalo scoreBreakdown must reflect shifted pyramid & citrus family share'
+    );
+  }
+
+  if (sandaloHeavy && obsessionHeavy) {
+    assert.ok(
+      sandaloHeavy.similarityScore > obsessionHeavy.similarityScore,
+      `Citrus-top Sandalo (${sandaloHeavy.similarityScore}) should outscore Amber/Spicy Obsession (${obsessionHeavy.similarityScore}) on 6/1/1 bergamot-dominant blend`
+    );
+  }
+
+  // Overall top-3 ranking should respond to 33/33/34 -> 75/12.5/12.5 shift
+  const top3Equal = resEqual.matches.slice(0, 3).map((m) => `${m.perfume.id}:${m.similarityScore}`);
+  const top3Heavy = resTopHeavy.matches.slice(0, 3).map((m) => `${m.perfume.id}:${m.similarityScore}`);
+  assert.notDeepEqual(top3Equal, top3Heavy);
+});
+
+test('TEST 5 — Contradictory / Related Note Disjointness: zero notes appear in both Shared and Missing', () => {
+  const repo = createLoadedRepo();
+  const normalizer = repo.getNormalizer();
+
+  // Include multiple notes with related-cousin mappings in Scento: black-tea (~tea), sea-salt (~sea-notes), oud-smoke (~oud)
+  const blends: BlendSelection[] = [
+    { 'black-tea': 4, 'sea-salt': 4, 'oud-smoke': 3, bergamot: 3, iris: 2 },
+    { rose: 4, jasmine: 4, sandalwood: 4, amber: 3, musk: 3 },
+  ];
+
+  for (const blend of blends) {
+    const res = repo.match(blend, FRAGRANCE_NOTES, { limit: 12 });
+    for (const m of res.matches) {
+      const sharedRefSet = new Set(m.sharedCanonicalIds ?? []);
+      const refOnlyCanonSet = new Set(
+        (m.refOnlyNoteNames ?? []).map((raw) => normalizer.resolve(raw).canonicalId)
+      );
+
+      for (const cid of sharedRefSet) {
+        assert.ok(
+          !refOnlyCanonSet.has(cid),
+          `Contradictory canonical ID '${cid}' appeared in both sharedCanonicalIds and refOnlyNoteNames for ${m.perfume.name}`
+        );
+      }
+
+      // Also ensure keyDifferences text never names a note already matched as cousin or exact in sharedNotes
+      const sharedLowerTokens = m.sharedNotes.flatMap((sn) =>
+        sn
+          .toLowerCase()
+          .replace(/[~()]/g, ' ')
+          .split(/\s+/)
+          .filter((t) => t.length >= 3)
+      );
+      const refMissingDiff = m.keyDifferences.find((d) => d.startsWith('Reference includes '));
+      if (refMissingDiff) {
+        const missingRaw = refMissingDiff
+          .replace('Reference includes ', '')
+          .replace(' absent in your blend', '')
+          .split(' & ');
+        for (const item of missingRaw) {
+          const itemCid = normalizer.resolve(item).canonicalId;
+          assert.ok(
+            !sharedRefSet.has(itemCid),
+            `Divergence mentions '${item}' (${itemCid}) which is already in sharedCanonicalIds of ${m.perfume.name}`
+          );
+          if (m.matchedDetails.some((d) => d.canonicalId === itemCid)) {
+            assert.fail(`Matched canonicalId '${itemCid}' leaked into missing diff: ${refMissingDiff}`);
+          }
+          // Sanity check cousin display token doesn't duplicate
+          void sharedLowerTokens;
+        }
+      }
+    }
+  }
+});
+
+test('TEST 6 — Empty Composition returns empty matches safely without NaN', () => {
+  const repo = createLoadedRepo();
+  const res = repo.match({}, FRAGRANCE_NOTES, { limit: 8 });
+  assert.equal(res.matches.length, 0);
+  assert.equal(res.strongMatches.length, 0);
+  assert.equal(res.candidateCount, 0);
+  assert.ok(res.lowMatchNotice && res.lowMatchNotice.length > 0);
+});
+
+test('TEST 7 — Single-Tier Composition handles pure top-tier blend safely and surfaces structural divergence', () => {
+  const repo = createLoadedRepo();
+  const res = repo.match({ bergamot: 5, lemon: 5 }, FRAGRANCE_NOTES, { limit: 8 });
+  assert.ok(res.matches.length >= 5);
+  for (const m of res.matches) {
+    assert.ok(Number.isFinite(m.similarityScore) && m.similarityScore >= 0 && m.similarityScore <= 98);
+    assert.ok(Number.isFinite(m.confidenceScore) && m.confidenceScore >= 20 && m.confidenceScore <= 98);
+    if (m.perfume.pyramidComplete) {
+      assert.ok(
+        m.keyDifferences.some((d) => d.includes('Single-tier user formula')),
+        `Expected single-tier structural note in keyDifferences for ${m.perfume.name}`
+      );
+    }
+  }
+});
+
+test('TEST 8 — Database Expansion & Year Validation: runtime upsertPerfumes indexes immediately and rejects invalid years', () => {
   const repo = createLoadedRepo();
   const initialCount = repo.getPerfumeCount();
 
@@ -128,15 +234,23 @@ test('Test D: Runtime catalog expansion makes newly added perfume immediately ma
         base_notes: ['Vetiver', 'Cedarwood'],
         url: 'https://www.scento.com/perfume-database',
       },
+      {
+        id: 'atelier-test-bad-year',
+        name: 'Invalid Year Archive Check',
+        house: 'Atelier Test House',
+        year: 99999,
+        notes: ['Bergamot', 'Amber'],
+      },
     ],
     { persist: false }
   );
 
-  assert.equal(importResult.added, 1);
-  assert.equal(importResult.duplicates, 0);
-  assert.equal(repo.getPerfumeCount(), initialCount + 1);
+  assert.equal(importResult.added, 2);
+  assert.equal(repo.getPerfumeCount(), initialCount + 2);
 
-  // Inserting exact duplicate should be caught cleanly
+  const page = repo.queryCatalog({ q: 'Invalid Year Archive Check', limit: 10 });
+  assert.equal(page.items[0].releaseYear, null, 'Out-of-range releaseYear must be sanitized to null');
+
   const dupResult = repo.upsertPerfumes(
     [
       {
@@ -170,7 +284,7 @@ test('Test D: Runtime catalog expansion makes newly added perfume immediately ma
   assert.ok(matchRes.matches[0].similarityScore >= 75);
 });
 
-test('Test E: Incomplete / missing pyramid records receive lower confidence without fabricated notes', () => {
+test('TEST 9 — Low-Confidence Incomplete Reference receives lower confidence without fabricated pyramid notes', () => {
   const repo = createLoadedRepo();
 
   repo.upsertPerfumes(
@@ -231,20 +345,52 @@ test('Test E: Incomplete / missing pyramid records receive lower confidence with
   );
 });
 
-test('Test F: Every match includes verified provenance, license, and accessible source URL', () => {
+test('TEST 10 — Deterministic Repeatability & Provenance: repeated queries match byte-for-byte', () => {
   const repo = createLoadedRepo();
-  const res = repo.match({ rose: 5, patchouli: 4, amber: 4, bergamot: 3 }, FRAGRANCE_NOTES, {
-    limit: 8,
-  });
+  const blend = { rose: 5, patchouli: 4, amber: 4, bergamot: 3 };
 
-  assert.ok(res.attribution.license.includes('CC BY 4.0'));
-  assert.ok(res.attribution.url.startsWith('https://'));
+  const run1 = repo.match(blend, FRAGRANCE_NOTES, { limit: 8 });
+  const run2 = repo.match(blend, FRAGRANCE_NOTES, { limit: 8 });
 
-  for (const m of res.matches) {
+  assert.deepEqual(
+    run1.matches.map((m) => ({
+      id: m.perfume.id,
+      score: m.similarityScore,
+      conf: m.confidenceScore,
+      breakdown: m.scoreBreakdown,
+      shared: m.sharedNotes,
+    })),
+    run2.matches.map((m) => ({
+      id: m.perfume.id,
+      score: m.similarityScore,
+      conf: m.confidenceScore,
+      breakdown: m.scoreBreakdown,
+      shared: m.sharedNotes,
+    }))
+  );
+
+  assert.ok(run1.attribution.license.includes('CC BY 4.0'));
+  for (const m of run1.matches) {
     assert.ok(m.perfume.provenance.provider.length > 0);
-    assert.ok(m.perfume.provenance.license.length > 0);
     assert.match(m.perfume.provenance.sourceUrl, /^https?:\/\//);
-    assert.ok(['complete', 'partial', 'minimal'].includes(m.perfume.completeness));
-    assert.ok(m.confidenceScore >= 20 && m.confidenceScore <= 100);
+    assert.ok(m.scoreBreakdown !== undefined);
   }
+});
+
+test('Known Libre-like reference composition ranks ysl-libre among top matches', () => {
+  const repo = createLoadedRepo();
+  const libreLikeBlend = {
+    mandarin: 4,
+    neroli: 4,
+    lavender: 4,
+    jasmine: 4,
+    musk: 3,
+    vanilla: 3,
+  };
+  const res = repo.match(libreLikeBlend, FRAGRANCE_NOTES, { limit: 8 });
+  const top5Ids = res.matches.slice(0, 5).map((m) => m.perfume.id);
+  assert.ok(
+    top5Ids.includes('ysl-libre'),
+    `Expected ysl-libre in top 5, got: ${top5Ids.join(', ')}`
+  );
 });

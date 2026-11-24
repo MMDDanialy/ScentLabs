@@ -158,6 +158,7 @@ export interface TranslationResource {
     };
     browseLayerNotes: string;
     revealCta: string;
+    jumpToVessel: string;
   };
   reveal: {
     distillingEyebrow: string;
@@ -175,6 +176,8 @@ export interface TranslationResource {
     defaultAlchemist: string;
     familySuffix: string;
     critiqueTitle: string;
+    critiqueBadgeAi: string;
+    critiqueBadgeDeterministic: string;
     critiqueAiSubtitle: string;
     critiqueDeterministicSubtitle: string;
     refreshNote: string;
@@ -213,6 +216,9 @@ export interface TranslationResource {
     pngExported: string;
     copySummary: string;
     summaryCopied: string;
+    clipboardFallbackTitle: string;
+    clipboardFallbackHint: string;
+    clipboardClose: string;
     saveToLibrary: string;
     savedToLibrary: string;
     lowMatchNotice: string;
@@ -222,11 +228,16 @@ export interface TranslationResource {
     eyebrow: string;
     title: string;
     closeAria: string;
+    localOnlyNotice: string;
     emptyTitle: string;
     emptyDescription: string;
     loadInLab: string;
     viewPassport: string;
+    duplicate: string;
+    duplicateSuffix: string;
     deleteAria: string;
+    confirmDelete: string;
+    cancelDelete: string;
     bespoke: string;
   };
   admin: {

@@ -8,6 +8,7 @@ import {
   formatLocaleDate,
   formatLocaleNumber,
   getLocalizedBalanceSummary,
+  getLocalizedCompositionTitle,
   getLocalizedDeterministicCritique,
   getLocalizedDiagnostic,
   getLocalizedFamily,
@@ -126,4 +127,15 @@ test('Diagnostics, balance summaries, and deterministic critiques localize accur
     null
   );
   assert.ok(critiqueFa.includes('شبانه ترنج'));
+
+  const singleTierSel = { bergamot: 5, lemon: 4 };
+  const singleTierEntries = normalizeBlend(singleTierSel, FRAGRANCE_NOTES);
+  const singleTierBal = computeBalanceReport(singleTierSel, FRAGRANCE_NOTES);
+  const singleTierDiag = singleTierBal.diagnostics.find((d) => d.id === 'single-tier');
+  assert.ok(singleTierDiag);
+  const locSingleTier = getLocalizedDiagnostic('fa', singleTierDiag, singleTierBal);
+  assert.ok(locSingleTier.title.includes('یک لایه'));
+
+  const faCitrusTitle = getLocalizedCompositionTitle('fa', singleTierEntries, singleTierBal);
+  assert.ok(faCitrusTitle.includes('کُلن آفتابی'));
 });

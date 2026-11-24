@@ -13,6 +13,8 @@ import {
   generateFormulaCode,
   normalizeBlend,
 } from './engine/formulationEngine';
+import { ALGORITHM_VERSION } from './engine/similarityEngine';
+import { getLocalizedCompositionTitle } from './i18n/engineLocalization';
 import { useI18n } from './i18n/I18nContext';
 import { atelierAudio } from './services/audioAndExport';
 import { useTheme, type ThemePreference } from './theme/ThemeContext';
@@ -40,7 +42,7 @@ function loadSavedLibrary(): PassportData[] {
 }
 
 export default function App() {
-  const { locale, setLocale, dict, t, formatNumber, getNoteName } = useI18n();
+  const { locale, setLocale, dict, t, formatNumber } = useI18n();
   const { themePreference, resolvedTheme, setThemePreference } = useTheme();
   const isLight = resolvedTheme === 'light';
 
@@ -258,17 +260,7 @@ export default function App() {
 
     const { moodTags, seasonTags } = deriveMoodAndSeasons(balance);
     const formulaCode = generateFormulaCode(entries);
-
-    const leadEntry = [...entries].sort((a, b) => b.percentage - a.percentage)[0];
-    const leadNameEn = leadEntry?.note.name;
-    const defaultTitle =
-      balance.dominantFamily && leadEntry
-        ? locale === 'fa'
-          ? `شبانه ${getNoteName(leadEntry.note.id)}`
-          : `Nocturne ${leadNameEn?.split(' ').pop()}`
-        : locale === 'fa'
-        ? 'ترکیب آتلیه'
-        : 'Atelier Composition';
+    const defaultTitle = getLocalizedCompositionTitle(locale, entries, balance);
 
     const pendingId = `${formulaCode}-${Date.now()}`;
     const initialPassport: PassportData = {
@@ -285,6 +277,8 @@ export default function App() {
       seasonTags,
       editorialCritique: generateDeterministicCritique(defaultTitle, entries, balance, null),
       critiqueSource: 'deterministic',
+      algorithmVersion: ALGORITHM_VERSION,
+      schemaVersion: 2,
     };
 
     setActivePassport(initialPassport);
@@ -364,7 +358,6 @@ export default function App() {
     locale,
     dict.reveal.defaultAlchemist,
     dict.reveal.matchErrorFallback,
-    getNoteName,
     fetchOptionalAiCritique,
   ]);
 
@@ -405,6 +398,20 @@ export default function App() {
     setStage('reveal');
   }, []);
 
+  const handleDuplicateFromLibrary = useCallback(
+    (item: PassportData) => {
+      const duplicate: PassportData = {
+        ...item,
+        id: `${item.formulaCode}-copy-${Date.now()}`,
+        fragranceName: `${item.fragranceName} (${dict.library.duplicateSuffix})`,
+        createdAt: new Date().toISOString(),
+        schemaVersion: item.schemaVersion ?? 2,
+      };
+      setLibraryItems((prev) => [duplicate, ...prev]);
+    },
+    [dict.library.duplicateSuffix]
+  );
+
   const handleDeleteFromLibrary = useCallback((id: string) => {
     setLibraryItems((prev) => prev.filter((item) => item.id !== id));
   }, []);
@@ -423,15 +430,15 @@ export default function App() {
     <div className="min-h-screen bg-[var(--vpl-bg)] text-[var(--vpl-text)] flex flex-col">
       {/* 3-Zone Top Bar */}
       <header className="border-b border-[var(--vpl-border-gold-soft)] bg-[var(--vpl-bg-header)] sticky top-0 z-40 backdrop-blur-xs">
-        <div className="mx-auto max-w-[1360px] px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
+        <div className="mx-auto max-w-[1360px] px-2.5 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-1.5 sm:gap-4">
           {/* Zone 1: Brand symbol + wordmark */}
           <button
             type="button"
             onClick={() => setStage('discovery')}
-            className="flex items-center gap-2 sm:gap-2.5 whitespace-nowrap shrink-0 cursor-pointer text-start min-w-0"
+            className="flex items-center gap-1.5 sm:gap-2.5 whitespace-nowrap shrink-0 cursor-pointer text-start min-w-0"
           >
             <div
-              className={`h-8 w-8 sm:h-9 sm:w-9 flex items-center justify-center shrink-0 ${
+              className={`h-7 w-7 sm:h-9 sm:w-9 flex items-center justify-center shrink-0 ${
                 isLight
                   ? 'rounded-lg p-1 bg-[#14110D] border border-[var(--vpl-border-gold)]'
                   : ''
@@ -446,7 +453,7 @@ export default function App() {
             <span className="font-serif text-lg xl:text-2xl font-semibold tracking-tight text-[var(--vpl-text)] hidden sm:inline">
               {dict.brand.name}
             </span>
-            <span className="font-serif text-[15px] font-semibold tracking-tight text-[var(--vpl-text)] sm:hidden">
+            <span className="font-serif text-[14px] font-semibold tracking-tight text-[var(--vpl-text)] sm:hidden">
               {dict.brand.shortName}
             </span>
           </button>
@@ -731,6 +738,7 @@ export default function App() {
         onClose={() => setIsLibraryOpen(false)}
         onLoadInLab={handleLoadFromLibrary}
         onOpenPassport={handleOpenPassportFromLibrary}
+        onDuplicate={handleDuplicateFromLibrary}
         onDelete={handleDeleteFromLibrary}
       />
 

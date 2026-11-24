@@ -101,7 +101,7 @@ export function formatPassportSummary(passport: PassportData, locale: Locale = '
   const top = layerList('top') || dict.reveal.noneLabel;
   const heart = layerList('heart') || dict.reveal.noneLabel;
   const base = layerList('base') || dict.reveal.noneLabel;
-  const match = passport.topMatches[0];
+  const matchesList = passport.topMatches.slice(0, 3);
   const famLabel = passport.balance.dominantFamily
     ? getLocalizedFamily(locale, passport.balance.dominantFamily)
     : dict.library.bespoke;
@@ -109,6 +109,16 @@ export function formatPassportSummary(passport: PassportData, locale: Locale = '
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+  });
+
+  const matchLines = matchesList.map((m, idx) => {
+    const line = interpolate(exp.summaryClosest, {
+      name: m.perfume.name,
+      house: m.perfume.house,
+      score: n(m.similarityScore),
+      confidence: n(m.confidenceScore ?? 80),
+    });
+    return matchesList.length > 1 ? `${n(idx + 1)}. ${line}` : line;
   });
 
   return [
@@ -128,14 +138,7 @@ export function formatPassportSummary(passport: PassportData, locale: Locale = '
       base: n(passport.balance.pyramid.base),
     }),
     interpolate(exp.summaryPyramid, { top, heart, base }),
-    match
-      ? interpolate(exp.summaryClosest, {
-          name: match.perfume.name,
-          house: match.perfume.house,
-          score: n(match.similarityScore),
-          confidence: n(match.confidenceScore ?? 80),
-        })
-      : '',
+    ...matchLines,
     exp.summaryNote,
   ]
     .filter(Boolean)
@@ -267,6 +270,12 @@ export async function exportPassportToPng(
           swatchBorder: 'rgba(244, 239, 230, 0.35)',
         };
 
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      await Promise.race([
+        document.fonts.ready,
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+    }
     const brandSymbol = await loadBrandSymbolImage();
 
     // Background
@@ -454,12 +463,12 @@ export async function exportPassportToPng(
     }
 
     // Closest reference match box
-    const matchY = Math.max(cursorY + 20, 1030);
+    const matchY = Math.min(Math.max(cursorY + 18, 980), 1060);
     ctx.fillStyle = palette.cardBg;
-    ctx.fillRect(104, matchY, width - 208, 220);
+    ctx.fillRect(104, matchY, width - 208, 210);
     ctx.strokeStyle = palette.borderOuter;
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(104, matchY, width - 208, 220);
+    ctx.strokeRect(104, matchY, width - 208, 210);
 
     const topMatch = passport.topMatches[0];
     const boxAnchorX = isRtl ? width - 136 : 136;
@@ -467,20 +476,24 @@ export async function exportPassportToPng(
 
     ctx.fillStyle = palette.accent;
     ctx.font = `500 17px ${monoFont}`;
-    ctx.fillText(exp.similarityEstimateHeader, boxAnchorX, matchY + 44);
+    ctx.fillText(exp.similarityEstimateHeader, boxAnchorX, matchY + 42);
 
     if (topMatch) {
       ctx.fillStyle = palette.text;
-      ctx.font = `600 36px ${serifFont}`;
-      ctx.fillText(
+      ctx.font = `600 34px ${serifFont}`;
+      wrapCanvasText(
+        ctx,
         `${topMatch.perfume.name} — ${topMatch.perfume.house}`,
         boxAnchorX,
-        matchY + 96
+        matchY + 92,
+        width - 390,
+        40,
+        1
       );
 
       ctx.fillStyle = palette.accent;
-      ctx.font = `600 36px ${monoFont}`;
-      ctx.fillText(pct(topMatch.similarityScore), scoreAnchorX, matchY + 96);
+      ctx.font = `600 34px ${monoFont}`;
+      ctx.fillText(pct(topMatch.similarityScore), scoreAnchorX, matchY + 92);
 
       ctx.fillStyle = palette.textSecondary;
       ctx.font = `400 20px ${sansFont}`;
@@ -496,11 +509,11 @@ export async function exportPassportToPng(
           : interpolate(exp.sharedAccordsPrefix, {
               items: sharedAccords || dict.reveal.accordsFallback,
             });
-      wrapCanvasText(ctx, sharedLine, boxAnchorX, matchY + 144, width - 272, 28, 2);
+      wrapCanvasText(ctx, sharedLine, boxAnchorX, matchY + 138, width - 272, 28, 2);
     }
 
     // Editorial note
-    const critY = matchY + 266;
+    const critY = Math.min(matchY + 244, height - 305);
     ctx.fillStyle = palette.accent;
     ctx.font = `500 17px ${monoFont}`;
     ctx.fillText(exp.archiveNoteHeader, anchorX, critY);
@@ -518,7 +531,7 @@ export async function exportPassportToPng(
 
     ctx.fillStyle = palette.textSecondary;
     ctx.font = `400 21px ${sansFont}`;
-    wrapCanvasText(ctx, displayCritique, anchorX, critY + 36, width - 208, 32, 4);
+    wrapCanvasText(ctx, displayCritique, anchorX, critY + 34, width - 208, 30, 4);
 
     // Honest footer disclaimer
     ctx.strokeStyle = palette.borderInner;

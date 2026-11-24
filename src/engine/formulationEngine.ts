@@ -169,11 +169,22 @@ export function computeBalanceReport(
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 4);
 
+  const familyIntensityMap = new Map<OlfactoryFamily, number>();
+  for (const { note, drops } of entries) {
+    familyIntensityMap.set(
+      note.family,
+      (familyIntensityMap.get(note.family) ?? 0) + drops * note.intensity
+    );
+  }
+
   let dominantFamily: OlfactoryFamily | null = null;
   let maxFam = -1;
+  let maxFamIntensity = -1;
   for (const [fam, w] of familyMap.entries()) {
-    if (w > maxFam) {
+    const inten = familyIntensityMap.get(fam) ?? 0;
+    if (w > maxFam || (w === maxFam && inten > maxFamIntensity)) {
       maxFam = w;
+      maxFamIntensity = inten;
       dominantFamily = fam;
     }
   }
@@ -255,12 +266,31 @@ export function computeBalanceReport(
     });
   }
 
+  const activeTierCount = [pyramid.top, pyramid.heart, pyramid.base].filter((v) => v > 0).length;
   if (entries.length === 1) {
     diagnostics.push({
       id: 'single-note',
       title: 'Soliflore / single-material study',
       detail: 'Only one aromatic material is currently active in the vessel.',
       suggestion: 'Pair with at least 2 complementary layers to build a classic three-tier pyramid.',
+      severity: 'advisory',
+    });
+  } else if (activeTierCount === 1) {
+    const activeLayer: NoteLayer =
+      pyramid.top > 0 ? 'top' : pyramid.heart > 0 ? 'heart' : 'base';
+    const suggestedLayer: NoteLayer =
+      activeLayer === 'top' ? 'base' : activeLayer === 'base' ? 'top' : 'base';
+    diagnostics.push({
+      id: 'single-tier',
+      title: 'Single-tier composition focus',
+      detail: `All ${entries.length} materials sit exclusively in the ${activeLayer} tier, omitting structural counterpoint from other pyramid layers.`,
+      suggestion:
+        activeLayer === 'top'
+          ? 'Introduce heart and base anchors (e.g., Lavender, Rose, or Sandalwood) for full three-tier evolution.'
+          : activeLayer === 'heart'
+          ? 'Add crisp top lift and a grounding base resin or wood to frame the core.'
+          : 'Pair the deep base with citrus top lift and an aromatic or floral bridge.',
+      targetLayer: suggestedLayer,
       severity: 'advisory',
     });
   }
@@ -481,4 +511,68 @@ export function generateFormulaCode(entries: NormalizedNoteEntry[]): string {
   }
   const hex = (hash >>> 0).toString(16).toUpperCase().padStart(6, '0').slice(0, 6);
   return `VPL-${hex}`;
+}
+
+function conciseNoteWord(noteName: string): string {
+  const cleaned = noteName
+    .replace(/\b(Calabrian|Amalfi|Blood|Tunisian|Alpine|Paraguayan|Atlantic|Damask|Haute-Provence|Florentine|Ceylon|Kashmir|Smoked|Bourbon|Mysore|Madagascar|Labdanum|Silk|Atlas|Aged|Indonesian|Haitian|Dark|Venezuelan|Green)\b/gi, '')
+    .replace(/\b(Absolute|Resin|Bark|Butter|Berry|Smoke|Bean)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || noteName.split(' ').pop() || noteName;
+}
+
+export function generateCompositionTitle(
+  entries: NormalizedNoteEntry[],
+  balance: BalanceReport
+): string {
+  if (entries.length === 0) return 'Atelier Composition';
+
+  const ranked = [...entries].sort((a, b) => {
+    if (b.percentage !== a.percentage) return b.percentage - a.percentage;
+    return b.note.intensity - a.note.intensity;
+  });
+
+  const lead = conciseNoteWord(ranked[0].note.name);
+  const second = ranked[1] ? conciseNoteWord(ranked[1].note.name) : null;
+  const { pyramid, facets, dominantFamily } = balance;
+
+  // Determine poetic atmospheric motif directly from weighted composition characteristics
+  let prefix = 'Atelier';
+  let suffix = 'Accord';
+
+  if (pyramid.top >= 55 && facets.freshness >= 70) {
+    prefix = 'Sunlit';
+    suffix = 'Cologne';
+  } else if (facets.smokiness >= 48) {
+    prefix = facets.warmth >= 68 ? 'Ember' : 'Obsidian';
+    suffix = 'Reserve';
+  } else if (facets.floralcy >= 64) {
+    prefix = facets.freshness >= 45 ? 'Luminous' : 'Velvet';
+    suffix = facets.warmth >= 62 ? 'Elixir' : 'Bloom';
+  } else if (facets.warmth >= 72 && facets.sweetness >= 60) {
+    prefix = 'Golden';
+    suffix = 'Velours';
+  } else if (facets.dryness >= 72) {
+    prefix = facets.freshness >= 52 ? 'Crushed' : 'Dry';
+    suffix = 'Silhouette';
+  } else if (facets.freshness >= 64) {
+    prefix = 'Crisp';
+    suffix = 'Brume';
+  } else if (pyramid.base >= 52) {
+    prefix = 'Deep';
+    suffix = 'Extrait';
+  } else if (dominantFamily === 'Aromatic & Herbal') {
+    prefix = 'Highland';
+    suffix = 'Fougère';
+  } else if (dominantFamily === 'Spicy') {
+    prefix = 'Spiced';
+    suffix = 'Study';
+  }
+
+  // Distinct balanced multi-note compositions combine lead + secondary cleanly
+  if (second && ranked[0].percentage < 46 && ranked[1].percentage >= 18) {
+    return `${prefix} ${lead} & ${second}`;
+  }
+  return `${prefix} ${lead} ${suffix}`;
 }

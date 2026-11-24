@@ -4,6 +4,7 @@ import { FRAGRANCE_NOTES } from '../data/catalog';
 import {
   buildScentProfile,
   computeBalanceReport,
+  generateCompositionTitle,
   generateDeterministicCritique,
   generateFormulaCode,
   normalizeBlend,
@@ -34,7 +35,7 @@ test('normalizeBlend filters invalid IDs and normalizes percentages to 100%', ()
   assert.equal(entries[2].note.layer, 'base');
 });
 
-test('computeBalanceReport flags heavy base imbalance and passes balanced blend', () => {
+test('computeBalanceReport flags heavy base imbalance, single-tier focus, and passes balanced blend', () => {
   const heavyReport = computeBalanceReport(
     { amber: 7, 'oud-smoke': 6, vanilla: 4 },
     FRAGRANCE_NOTES
@@ -42,12 +43,14 @@ test('computeBalanceReport flags heavy base imbalance and passes balanced blend'
   assert.equal(heavyReport.overallStatus, 'imbalanced');
   assert.equal(heavyReport.pyramid.base, 100);
   assert.ok(heavyReport.diagnostics.some((d) => d.id === 'heavy-base' || d.id === 'low-top'));
+  assert.ok(heavyReport.diagnostics.some((d) => d.id === 'single-tier'));
 
   const balancedReport = computeBalanceReport(
     { bergamot: 3, 'pink-pepper': 1, rose: 3, cardamom: 2, sandalwood: 3, cedarwood: 2 },
     FRAGRANCE_NOTES
   );
   assert.equal(balancedReport.overallStatus, 'balanced');
+  assert.ok(!balancedReport.diagnostics.some((d) => d.id === 'single-tier'));
   assert.equal(
     balancedReport.pyramid.top + balancedReport.pyramid.heart + balancedReport.pyramid.base,
     100
@@ -64,6 +67,32 @@ test('buildScentProfile selects recommended notes across all three layers', () =
   );
   assert.equal(profile.recommendedNoteIds.length, 6);
   assert.ok(profile.label.includes('Amber-Warmed'));
+});
+
+test('generateCompositionTitle creates varied composition-aware titles reflecting formula character', () => {
+  const citrusBlend = { bergamot: 6, lemon: 3, musk: 1 };
+  const citrusTitle = generateCompositionTitle(
+    normalizeBlend(citrusBlend, FRAGRANCE_NOTES),
+    computeBalanceReport(citrusBlend, FRAGRANCE_NOTES)
+  );
+  assert.ok(citrusTitle.includes('Sunlit') && citrusTitle.includes('Bergamot'));
+  assert.ok(!citrusTitle.includes('Nocturne'));
+
+  const oudBlend = { 'oud-smoke': 6, saffron: 4, amber: 3 };
+  const oudTitle = generateCompositionTitle(
+    normalizeBlend(oudBlend, FRAGRANCE_NOTES),
+    computeBalanceReport(oudBlend, FRAGRANCE_NOTES)
+  );
+  assert.ok(oudTitle.includes('Ember') || oudTitle.includes('Obsidian'));
+
+  const floralBlend = { rose: 5, jasmine: 4, sandalwood: 2 };
+  const floralTitle = generateCompositionTitle(
+    normalizeBlend(floralBlend, FRAGRANCE_NOTES),
+    computeBalanceReport(floralBlend, FRAGRANCE_NOTES)
+  );
+  assert.ok(floralTitle.includes('Velvet') || floralTitle.includes('Luminous'));
+  assert.notEqual(citrusTitle, oudTitle);
+  assert.notEqual(oudTitle, floralTitle);
 });
 
 test('generateFormulaCode and generateDeterministicCritique produce valid strings', () => {

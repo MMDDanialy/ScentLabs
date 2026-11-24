@@ -6,6 +6,7 @@ import type {
   MatchApiResponse,
   MatchedNoteDetail,
   MatchResult,
+  MatchScoreBreakdown,
   MatchStrengthTier,
   NoteLayer,
   OlfactoryFamily,
@@ -13,6 +14,8 @@ import type {
 } from '../types/fragrance';
 import { computeBalanceReport, normalizeBlend } from './formulationEngine';
 import { NoteNormalizer } from './noteNormalization';
+
+export const ALGORITHM_VERSION = 'v2.1-hybrid-ratio';
 
 export interface CatalogIndex {
   perfumes: ReferencePerfume[];
@@ -146,6 +149,60 @@ function deriveRefFacets(perfume: ReferencePerfume): FacetProfile {
   };
 }
 
+export function validateMatchResult(
+  result: MatchResult,
+  claimedUserCanonicalIds: Set<string>,
+  userOnlyCanonicalIds: Set<string>,
+  refOnlyCanonicalIds: Set<string>
+): boolean {
+  if (
+    !Number.isFinite(result.similarityScore) ||
+    result.similarityScore < 0 ||
+    result.similarityScore > 100
+  ) {
+    console.error(`[SimilarityEngine] Invalid similarityScore for ${result.perfume.id}: ${result.similarityScore}`);
+    return false;
+  }
+  if (
+    !Number.isFinite(result.confidenceScore) ||
+    result.confidenceScore < 0 ||
+    result.confidenceScore > 100
+  ) {
+    console.error(`[SimilarityEngine] Invalid confidenceScore for ${result.perfume.id}: ${result.confidenceScore}`);
+    return false;
+  }
+  if (
+    !Number.isFinite(result.tierAlignmentScore) ||
+    result.tierAlignmentScore < 0 ||
+    result.tierAlignmentScore > 100
+  ) {
+    console.error(`[SimilarityEngine] Invalid tierAlignmentScore for ${result.perfume.id}: ${result.tierAlignmentScore}`);
+    return false;
+  }
+
+  const sharedRefSet = new Set(result.sharedCanonicalIds ?? result.matchedDetails.map((d) => d.canonicalId));
+  if (sharedRefSet.size !== result.matchedDetails.length) {
+    console.error(`[SimilarityEngine] Duplicate canonical ID in matchedDetails for ${result.perfume.id}`);
+    return false;
+  }
+
+  for (const cid of sharedRefSet) {
+    if (refOnlyCanonicalIds.has(cid)) {
+      console.error(`[SimilarityEngine] Contradictory canonical ID '${cid}' in both shared and refOnly for ${result.perfume.id}`);
+      return false;
+    }
+  }
+
+  for (const ucid of claimedUserCanonicalIds) {
+    if (userOnlyCanonicalIds.has(ucid)) {
+      console.error(`[SimilarityEngine] Contradictory user canonical ID '${ucid}' in both claimed and userOnly for ${result.perfume.id}`);
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export function buildCatalogIndex(
   perfumes: ReferencePerfume[],
   normalizer: NoteNormalizer
@@ -213,6 +270,7 @@ export function matchCompositionAgainstCatalog(
           : 'Add notes to the laboratory vessel to run reference matching.',
       searchedCount: totalCatalogCount,
       candidateCount: 0,
+      algorithmVersion: ALGORITHM_VERSION,
       attribution: {
         name: 'Scento Perfume Database (CC BY 4.0)',
         url: 'https://www.scento.com/perfume-database',
@@ -223,27 +281,90 @@ export function matchCompositionAgainstCatalog(
 
   const balance: BalanceReport = computeBalanceReport(selection, notes);
 
-  // Resolve user's notes to canonical IDs and compute IDF weights
-  const userCanonicalEntries = entries.map((entry) => {
+  // Resolve and deduplicate user's notes into canonical IDs with exact relative shares
+  const userCanonAgg = new Map<
+    string,
+    {
+      entry: (typeof entries)[number];
+      canonicalId: string;
+      relatedIds: string[];
+      idf: number;
+      share: number;
+    }
+  >();
+
+  for (const entry of entries) {
     const resolved = normalizer.resolve(entry.note.name);
-    // Also check raw note.id in case it's already canonical or has distinct synonym
     const byId = normalizer.resolve(entry.note.id);
     const canonicalId =
       resolved.matchSource !== 'slug-fallback' ? resolved.canonicalId : byId.canonicalId;
     const relatedIds = Array.from(
       new Set([...resolved.relatedIds, ...byId.relatedIds, ...normalizer.getRelatedIds(canonicalId)])
-    );
+    ).filter((rid) => rid !== canonicalId);
     const df = index.noteDocumentFrequency.get(canonicalId) ?? 0;
     const idf = 1 + Math.log((totalCatalogCount + 1) / (df + 1));
+    const share = entry.percentage / 100;
 
-    return {
-      entry,
-      canonicalId,
-      relatedIds,
-      idf,
-      share: entry.percentage / 100,
-    };
-  });
+    const existing = userCanonAgg.get(canonicalId);
+    if (existing) {
+      const combinedShare = existing.share + share;
+      const keepNew = share > existing.share;
+      userCanonAgg.set(canonicalId, {
+        entry: keepNew ? entry : existing.entry,
+        canonicalId,
+        relatedIds: Array.from(new Set([...existing.relatedIds, ...relatedIds])),
+        idf,
+        share: combinedShare,
+      });
+    } else {
+      userCanonAgg.set(canonicalId, {
+        entry,
+        canonicalId,
+        relatedIds,
+        idf,
+        share,
+      });
+    }
+  }
+
+  const userCanonicalEntries = Array.from(userCanonAgg.values());
+  const userTotalShare = Math.max(
+    1e-6,
+    userCanonicalEntries.reduce((sum, u) => sum + u.share, 0)
+  );
+  for (const u of userCanonicalEntries) {
+    u.share = u.share / userTotalShare;
+  }
+
+  // Share-weighted user pyramid distribution P_user = (P_top, P_heart, P_base)
+  const userPyramidVec = {
+    top: balance.pyramid.top / 100,
+    heart: balance.pyramid.heart / 100,
+    base: balance.pyramid.base / 100,
+  };
+  const userActiveTiers = [
+    balance.pyramid.top,
+    balance.pyramid.heart,
+    balance.pyramid.base,
+  ].filter((v) => v > 0).length;
+
+  // Share-weighted family and accord distributions
+  const userFamilyWeights = new Map<OlfactoryFamily, number>();
+  const userAccordWeightMap = new Map<string, number>();
+  for (const u of userCanonicalEntries) {
+    userFamilyWeights.set(
+      u.entry.note.family,
+      (userFamilyWeights.get(u.entry.note.family) ?? 0) + u.share
+    );
+    for (const acc of u.entry.note.accords) {
+      const key = acc.toLowerCase();
+      userAccordWeightMap.set(key, (userAccordWeightMap.get(key) ?? 0) + u.share);
+    }
+  }
+  const userTotalAccordWeight = Math.max(
+    1e-6,
+    Array.from(userAccordWeightMap.values()).reduce((s, w) => s + w, 0)
+  );
 
   // 1. Candidate retrieval via inverted indexes across the entire active catalog
   const candidateIndexSet = new Set<number>();
@@ -251,13 +372,16 @@ export function matchCompositionAgainstCatalog(
     for (const idx of index.noteToPerfumeIndices.get(u.canonicalId) ?? []) {
       candidateIndexSet.add(idx);
     }
+    for (const rel of u.relatedIds) {
+      for (const idx of index.noteToPerfumeIndices.get(rel) ?? []) {
+        candidateIndexSet.add(idx);
+      }
+    }
     for (const idx of index.relatedToPerfumeIndices.get(u.canonicalId) ?? []) {
       candidateIndexSet.add(idx);
     }
   }
 
-  // Fallback: if inverted index yielded fewer than 20 candidates (e.g., rare/new note blend),
-  // include the full catalog so no eligible reference is ever skipped.
   const candidateIndices =
     candidateIndexSet.size >= 20
       ? Array.from(candidateIndexSet)
@@ -267,16 +391,6 @@ export function matchCompositionAgainstCatalog(
     (sum, u) => sum + u.share * u.idf,
     0
   );
-
-  const userAccordsLower = new Set<string>();
-  for (const a of balance.dominantAccords) {
-    userAccordsLower.add(a.accord.toLowerCase());
-  }
-  for (const e of entries) {
-    for (const a of e.note.accords) {
-      userAccordsLower.add(a.toLowerCase());
-    }
-  }
 
   const facetKeys: (keyof FacetProfile)[] = [
     'warmth',
@@ -291,123 +405,226 @@ export function matchCompositionAgainstCatalog(
 
   for (const pIdx of candidateIndices) {
     const perfume = index.perfumes[pIdx];
-    const refAllSet = new Set(perfume.canonicalNoteIds);
     const refTopSet = new Set(perfume.topCanonicalIds);
     const refHeartSet = new Set(perfume.heartCanonicalIds);
     const refBaseSet = new Set(perfume.baseCanonicalIds);
 
-    const getRefLayer = (cid: string): NoteLayer | 'unspecified' => {
+    // Build deduplicated ordered canonical note dictionary for the reference
+    const refUniqueMap = new Map<string, string>();
+    for (const rawName of perfume.allNoteNames) {
+      const cid = normalizer.resolve(rawName).canonicalId;
+      if (!refUniqueMap.has(cid)) {
+        const matName = normalizer.getMaterial(cid)?.name;
+        refUniqueMap.set(cid, matName || rawName);
+      }
+    }
+    for (const cid of perfume.canonicalNoteIds) {
+      if (!refUniqueMap.has(cid)) {
+        refUniqueMap.set(cid, normalizer.getMaterial(cid)?.name ?? cid);
+      }
+    }
+
+    const refCanonIds = Array.from(refUniqueMap.keys());
+    const refCanonSet = new Set(refCanonIds);
+
+    const getRefLayer = (
+      cid: string,
+      preferredLayer?: NoteLayer
+    ): NoteLayer | 'unspecified' => {
+      if (preferredLayer === 'top' && refTopSet.has(cid)) return 'top';
+      if (preferredLayer === 'heart' && refHeartSet.has(cid)) return 'heart';
+      if (preferredLayer === 'base' && refBaseSet.has(cid)) return 'base';
       if (refTopSet.has(cid)) return 'top';
       if (refHeartSet.has(cid)) return 'heart';
       if (refBaseSet.has(cid)) return 'base';
       return 'unspecified';
     };
 
+    // Precompute reference IDF mass and uniform-IDF prior q_c (no fabricated note percentages)
+    let refTotalIdfMass = 0;
+    const refIdfByCid = new Map<string, number>();
+    for (const cid of refCanonIds) {
+      const df = index.noteDocumentFrequency.get(cid) ?? 0;
+      const idf = 1 + Math.log((totalCatalogCount + 1) / (df + 1));
+      refIdfByCid.set(cid, idf);
+      refTotalIdfMass += idf;
+    }
+
+    // Two-pass disjoint canonical matching:
+    // Pass 1 claims all exact canonical matches; Pass 2 matches remaining user notes to unclaimed related ref notes
+    const claimedUserIds = new Set<string>();
+    const claimedRefIds = new Set<string>();
     const matchedDetails: MatchedNoteDetail[] = [];
     const sharedNotes: string[] = [];
+
     let matchedUserWeightedMass = 0;
     let matchedRefIdfMass = 0;
+    let bhattacharyyaRefOverlap = 0;
     let tierScoreSum = 0;
     let tierWeightSum = 0;
     let exactMatchCount = 0;
     let relatedMatchCount = 0;
 
+    // Pass 1: exact canonical matches
     for (const u of userCanonicalEntries) {
+      if (!refCanonSet.has(u.canonicalId) || claimedRefIds.has(u.canonicalId)) continue;
+
+      claimedUserIds.add(u.canonicalId);
+      claimedRefIds.add(u.canonicalId);
+
       const weight = u.share * u.idf;
+      const refLayer = getRefLayer(u.canonicalId, u.entry.note.layer);
+      const tierProx = perfume.pyramidComplete
+        ? tierProximity(u.entry.note.layer, refLayer)
+        : 0.55;
+      const aligned = perfume.pyramidComplete && refLayer === u.entry.note.layer;
 
-      if (refAllSet.has(u.canonicalId)) {
-        const refLayer = getRefLayer(u.canonicalId);
-        const tierProx = perfume.pyramidComplete
-          ? tierProximity(u.entry.note.layer, refLayer)
-          : 0.58;
-        const aligned = perfume.pyramidComplete && refLayer === u.entry.note.layer;
+      const qRef =
+        refTotalIdfMass > 0 ? (refIdfByCid.get(u.canonicalId) ?? u.idf) / refTotalIdfMass : 0;
 
-        exactMatchCount += 1;
-        matchedUserWeightedMass += weight;
-        matchedRefIdfMass += u.idf;
-        tierScoreSum += weight * tierProx;
-        tierWeightSum += weight;
+      exactMatchCount += 1;
+      matchedUserWeightedMass += weight;
+      matchedRefIdfMass += refIdfByCid.get(u.canonicalId) ?? u.idf;
+      bhattacharyyaRefOverlap += Math.sqrt(u.share * qRef);
+      tierScoreSum += weight * tierProx;
+      tierWeightSum += weight;
 
-        sharedNotes.push(u.entry.note.name);
-        matchedDetails.push({
-          noteName: u.entry.note.name,
-          canonicalId: u.canonicalId,
-          userLayer: u.entry.note.layer,
-          refLayer,
-          tierAligned: aligned,
-          matchType: 'exact',
-          userShare: u.entry.percentage,
-        });
-      } else {
-        // Check related material cousins
-        const relatedHitId = u.relatedIds.find((rid) => refAllSet.has(rid));
-        if (relatedHitId) {
-          const refLayer = getRefLayer(relatedHitId);
-          const tierProx = perfume.pyramidComplete
-            ? tierProximity(u.entry.note.layer, refLayer)
-            : 0.5;
-          relatedMatchCount += 1;
-          matchedUserWeightedMass += weight * 0.45;
-          matchedRefIdfMass += u.idf * 0.45;
-          tierScoreSum += weight * 0.45 * tierProx;
-          tierWeightSum += weight * 0.45;
-
-          const relMat = normalizer.getMaterial(relatedHitId);
-          sharedNotes.push(`${u.entry.note.name} (~${relMat?.name ?? relatedHitId})`);
-          matchedDetails.push({
-            noteName: u.entry.note.name,
-            canonicalId: relatedHitId,
-            userLayer: u.entry.note.layer,
-            refLayer,
-            tierAligned: perfume.pyramidComplete && refLayer === u.entry.note.layer,
-            matchType: 'related',
-            userShare: u.entry.percentage,
-          });
-        }
-      }
+      sharedNotes.push(u.entry.note.name);
+      matchedDetails.push({
+        noteName: u.entry.note.name,
+        canonicalId: u.canonicalId,
+        userLayer: u.entry.note.layer,
+        refLayer,
+        tierAligned: aligned,
+        matchType: 'exact',
+        userShare: u.entry.percentage,
+      });
     }
 
-    // Reference total IDF mass (guards against short-list bias)
-    const refTotalIdfMass = perfume.canonicalNoteIds.reduce((sum, cid) => {
-      const df = index.noteDocumentFrequency.get(cid) ?? 0;
-      const idf = 1 + Math.log((totalCatalogCount + 1) / (df + 1));
-      return sum + idf;
-    }, 0);
+    // Pass 2: related aromatic material cousins (only unclaimed user + unclaimed ref canonical IDs)
+    for (const u of userCanonicalEntries) {
+      if (claimedUserIds.has(u.canonicalId)) continue;
+      const relatedHitId = u.relatedIds.find(
+        (rid) => refCanonSet.has(rid) && !claimedRefIds.has(rid)
+      );
+      if (!relatedHitId) continue;
 
-    const userCoverage = userTotalIdfMass > 0 ? matchedUserWeightedMass / userTotalIdfMass : 0;
-    const refCoverage = refTotalIdfMass > 0 ? matchedRefIdfMass / refTotalIdfMass : 0;
-    // Harmonic-weighted balance between user formula fit and reference coverage
-    const noteOverlapScore = 0.62 * userCoverage + 0.38 * refCoverage;
+      claimedUserIds.add(u.canonicalId);
+      claimedRefIds.add(relatedHitId);
 
-    const tierAlignmentScore =
+      const weight = u.share * u.idf;
+      const refLayer = getRefLayer(relatedHitId, u.entry.note.layer);
+      const tierProx = perfume.pyramidComplete
+        ? tierProximity(u.entry.note.layer, refLayer)
+        : 0.48;
+      const relIdf = refIdfByCid.get(relatedHitId) ?? u.idf;
+      const qRef = refTotalIdfMass > 0 ? relIdf / refTotalIdfMass : 0;
+
+      relatedMatchCount += 1;
+      matchedUserWeightedMass += weight * 0.5;
+      matchedRefIdfMass += relIdf * 0.5;
+      bhattacharyyaRefOverlap += 0.55 * Math.sqrt(u.share * qRef);
+      tierScoreSum += weight * 0.5 * tierProx;
+      tierWeightSum += weight * 0.5;
+
+      const relMat = normalizer.getMaterial(relatedHitId);
+      sharedNotes.push(`${u.entry.note.name} (~${relMat?.name ?? refUniqueMap.get(relatedHitId) ?? relatedHitId})`);
+      matchedDetails.push({
+        noteName: u.entry.note.name,
+        canonicalId: relatedHitId,
+        userLayer: u.entry.note.layer,
+        refLayer,
+        tierAligned: perfume.pyramidComplete && refLayer === u.entry.note.layer,
+        matchType: 'related',
+        userShare: u.entry.percentage,
+      });
+    }
+
+    // Component 1: User Formula Coverage (share * IDF weighted)
+    const userNoteCoverage = clamp(
+      userTotalIdfMass > 0 ? matchedUserWeightedMass / userTotalIdfMass : 0,
+      0,
+      1
+    );
+
+    // Component 2: Reference Coverage + Ratio-Sensitive Bhattacharyya Precision
+    const refIdfRecall = refTotalIdfMass > 0 ? matchedRefIdfMass / refTotalIdfMass : 0;
+    const refPrecision = clamp(
+      0.5 * refIdfRecall + 0.5 * clamp(bhattacharyyaRefOverlap, 0, 1),
+      0,
+      1
+    );
+
+    // Component 3: Per-Note Layer Alignment (share-weighted)
+    const tierNoteAlignment =
       tierWeightSum > 0 ? clamp(tierScoreSum / tierWeightSum, 0, 1) : 0;
 
-    // 3. Family & Character/Accord proximity
+    // Component 4: Documented Pyramid Concentration Distribution Match (P_user vs P_ref)
+    let pyramidDistribution = 0.42; // Honest neutral prior for unrecorded pyramids
+    if (perfume.pyramidComplete) {
+      const nT = perfume.topCanonicalIds.length;
+      const nH = perfume.heartCanonicalIds.length;
+      const nB = perfume.baseCanonicalIds.length;
+      const nTotal = Math.max(1, nT + nH + nB);
+      const refPyr = {
+        top: nT / nTotal,
+        heart: nH / nTotal,
+        base: nB / nTotal,
+      };
+      const l1Dist =
+        Math.abs(userPyramidVec.top - refPyr.top) +
+        Math.abs(userPyramidVec.heart - refPyr.heart) +
+        Math.abs(userPyramidVec.base - refPyr.base);
+      pyramidDistribution = clamp(1 - 0.5 * l1Dist, 0, 1);
+    } else if (perfume.completeness === 'partial') {
+      pyramidDistribution = 0.52;
+    }
+
+    // Component 5: Share-Weighted Olfactory Family & Accord Compatibility
     const sharedAccords: string[] = [];
+    let matchedUserAccordWeight = 0;
     for (const acc of perfume.accords) {
       const lower = acc.toLowerCase();
       const syns = CHARACTER_SYNONYMS[lower] ?? [lower];
-      if (syns.some((s) => userAccordsLower.has(s))) {
+      let bestSynWeight = 0;
+      for (const s of syns) {
+        const w = userAccordWeightMap.get(s) ?? 0;
+        if (w > bestSynWeight) bestSynWeight = w;
+      }
+      if (bestSynWeight > 0) {
         sharedAccords.push(acc);
+        matchedUserAccordWeight += bestSynWeight;
       }
     }
-    const accordUnion = Math.max(1, new Set([...userAccordsLower, ...perfume.accords.map((a) => a.toLowerCase())]).size);
-    const accordBaseRatio =
+    const weightedAccordAlignment = clamp(
+      matchedUserAccordWeight / userTotalAccordWeight,
+      0,
+      1
+    );
+    const refAccordBreadth =
       perfume.accords.length > 0
         ? clamp(sharedAccords.length / Math.min(perfume.accords.length, 4), 0, 1)
         : 0;
-    const accordJaccard = sharedAccords.length / accordUnion;
 
-    let familyMatch = 0;
-    if (balance.dominantFamily) {
-      const mappedPrimary = SCENTO_FAMILY_TO_LAB[perfume.family.toLowerCase()] ?? [];
-      const mappedSecondary = SCENTO_FAMILY_TO_LAB[(perfume.secondaryFamily ?? '').toLowerCase()] ?? [];
-      if (mappedPrimary.includes(balance.dominantFamily)) familyMatch = 1;
-      else if (mappedSecondary.includes(balance.dominantFamily)) familyMatch = 0.6;
+    const mappedPrimary = SCENTO_FAMILY_TO_LAB[perfume.family.toLowerCase()] ?? [];
+    const mappedSecondary = SCENTO_FAMILY_TO_LAB[(perfume.secondaryFamily ?? '').toLowerCase()] ?? [];
+    let primaryFamMass = 0;
+    for (const fam of mappedPrimary) {
+      primaryFamMass = Math.max(primaryFamMass, userFamilyWeights.get(fam) ?? 0);
     }
-    const familyAccordScore = 0.55 * accordBaseRatio + 0.2 * accordJaccard + 0.25 * familyMatch;
+    let secondaryFamMass = 0;
+    for (const fam of mappedSecondary) {
+      secondaryFamMass = Math.max(secondaryFamMass, userFamilyWeights.get(fam) ?? 0);
+    }
+    const familyScore = clamp(primaryFamMass + 0.55 * secondaryFamMass, 0, 1);
 
-    // 4. Facet directional proximity
+    const familyAccord = clamp(
+      0.42 * familyScore + 0.34 * weightedAccordAlignment + 0.24 * refAccordBreadth,
+      0,
+      1
+    );
+
+    // Component 6: Share-Weighted Facet Directional Proximity
     const refFacets = deriveRefFacets(perfume);
     let sqDist = 0;
     for (const key of facetKeys) {
@@ -415,21 +632,23 @@ export function matchCompositionAgainstCatalog(
       sqDist += diff * diff;
     }
     const rmsDist = Math.sqrt(sqDist / facetKeys.length);
-    const facetScore = clamp(1 - rmsDist * 1.45, 0, 1);
+    const facetProximity = clamp(1 - rmsDist * 1.45, 0, 1);
 
-    // Combine components
+    // Explainable weighted hybrid total (weights sum to 1.00)
     let combined =
-      0.48 * noteOverlapScore +
-      0.18 * tierAlignmentScore +
-      0.2 * familyAccordScore +
-      0.14 * facetScore;
+      0.24 * userNoteCoverage +
+      0.18 * refPrecision +
+      0.10 * tierNoteAlignment +
+      0.16 * pyramidDistribution +
+      0.18 * familyAccord +
+      0.14 * facetProximity;
 
-    // Evidence dampener: prevent unrelated blends with 0 shared notes from getting inflated scores
+    // Honest evidence & completeness adjustments
     if (exactMatchCount === 0 && relatedMatchCount === 0) {
       combined *= 0.35;
     } else if (exactMatchCount === 0 && relatedMatchCount === 1) {
       combined *= 0.65;
-    } else if (exactMatchCount === 1 && entries.length >= 4 && userCoverage < 0.22) {
+    } else if (exactMatchCount === 1 && entries.length >= 4 && userNoteCoverage < 0.22) {
       combined *= 0.82;
     }
 
@@ -442,7 +661,7 @@ export function matchCompositionAgainstCatalog(
         : perfume.completeness === 'partial'
         ? 0.78
         : 0.6;
-    const richnessFactor = clamp(perfume.canonicalNoteIds.length / 5, 0.35, 1.0);
+    const richnessFactor = clamp(refCanonIds.length / 5, 0.35, 1.0);
     const evidenceFactor =
       exactMatchCount + relatedMatchCount * 0.5 >= 2
         ? 1.0
@@ -456,41 +675,46 @@ export function matchCompositionAgainstCatalog(
     );
 
     const matchTier: MatchStrengthTier =
-      similarityScore >= 48 && exactMatchCount >= 2
+      similarityScore >= 46 && (exactMatchCount >= 2 || (exactMatchCount >= 1 && entries.length <= 2 && similarityScore >= 52))
         ? 'strong'
-        : similarityScore >= 32 && (exactMatchCount >= 1 || relatedMatchCount >= 2)
+        : similarityScore >= 30 && (exactMatchCount >= 1 || relatedMatchCount >= 2)
         ? 'moderate'
         : 'exploratory';
 
-    // Explainable differences
-    const userCanonSet = new Set(userCanonicalEntries.map((u) => u.canonicalId));
-    const keyDifferences: string[] = [];
+    // Disjoint partition sets for explainability
+    const userOnlyEntries = userCanonicalEntries
+      .filter((u) => !claimedUserIds.has(u.canonicalId))
+      .sort((a, b) => b.share - a.share);
+    const userOnlyCanonicalIds = new Set(userOnlyEntries.map((u) => u.canonicalId));
+    const userOnlyNoteNames = userOnlyEntries.map((u) => u.entry.note.name);
 
-    const missingFromUser = perfume.allNoteNames.filter((raw) => {
-      const cid = normalizer.resolve(raw).canonicalId;
-      return !userCanonSet.has(cid);
-    });
-    if (missingFromUser.length > 0) {
+    const refOnlyEntries = Array.from(refUniqueMap.entries()).filter(
+      ([cid]) => !claimedRefIds.has(cid)
+    );
+    const refOnlyCanonicalIds = new Set(refOnlyEntries.map(([cid]) => cid));
+    const refOnlyNoteNames = refOnlyEntries.map(([, display]) => display);
+
+    const keyDifferences: string[] = [];
+    if (refOnlyNoteNames.length > 0) {
       keyDifferences.push(
-        `Reference includes ${missingFromUser.slice(0, 2).join(' & ')} absent in your blend`
+        `Reference includes ${refOnlyNoteNames.slice(0, 2).join(' & ')} absent in your blend`
       );
     }
-
-    const matchedIdsSet = new Set(matchedDetails.map((d) => d.canonicalId));
-    const extraUserNotes = userCanonicalEntries
-      .filter((u) => !matchedIdsSet.has(u.canonicalId))
-      .sort((a, b) => b.share - a.share)
-      .map((u) => u.entry.note.name);
-    if (extraUserNotes.length > 0) {
-      keyDifferences.push(`Your formula introduces ${extraUserNotes.slice(0, 2).join(' & ')}`);
+    if (userOnlyNoteNames.length > 0) {
+      keyDifferences.push(
+        `Your formula introduces ${userOnlyNoteNames.slice(0, 2).join(' & ')}`
+      );
     }
-
     if (!perfume.pyramidComplete) {
       keyDifferences.push(
         `Reference catalog entry lists flat notes only (${perfume.completeness} pyramid metadata)`
       );
     }
-
+    if (userActiveTiers === 1 && perfume.pyramidComplete) {
+      keyDifferences.push(
+        `Single-tier user formula concentrates 100% in one layer vs full 3-tier reference pyramid`
+      );
+    }
     if (keyDifferences.length === 0) {
       keyDifferences.push('Closely aligned materials and structural pyramid proportions');
     }
@@ -502,7 +726,7 @@ export function matchCompositionAgainstCatalog(
             perfume.pyramidComplete && alignedCount > 0
               ? ` (${alignedCount} in matching pyramid tier)`
               : ''
-          }; ${Math.round(userCoverage * 100)}% weighted blend alignment.`
+          }; ${Math.round(userNoteCoverage * 100)}% weighted blend alignment.`
         : relatedMatchCount > 0
         ? `Connected via ${relatedMatchCount} related aromatic material family link${
             relatedMatchCount > 1 ? 's' : ''
@@ -511,18 +735,42 @@ export function matchCompositionAgainstCatalog(
             sharedAccords.slice(0, 2).join(' / ') || perfume.family
           } character distance.`;
 
-    scored.push({
+    const scoreBreakdown: MatchScoreBreakdown = {
+      userNoteCoverage: Math.round(userNoteCoverage * 100),
+      refPrecision: Math.round(refPrecision * 100),
+      tierNoteAlignment: Math.round(tierNoteAlignment * 100),
+      pyramidDistribution: Math.round(pyramidDistribution * 100),
+      familyAccord: Math.round(familyAccord * 100),
+      facetProximity: Math.round(facetProximity * 100),
+    };
+
+    const candidateResult: MatchResult = {
       perfume,
       similarityScore,
       confidenceScore,
       matchTier,
-      tierAlignmentScore: Math.round(tierAlignmentScore * 100),
+      tierAlignmentScore: Math.round(tierNoteAlignment * 100),
       sharedNotes,
+      sharedCanonicalIds: Array.from(claimedRefIds),
+      userOnlyNoteNames,
+      refOnlyNoteNames,
       matchedDetails,
       sharedAccords,
       keyDifferences,
       explanation,
-    });
+      scoreBreakdown,
+    };
+
+    if (
+      validateMatchResult(
+        candidateResult,
+        claimedUserIds,
+        userOnlyCanonicalIds,
+        refOnlyCanonicalIds
+      )
+    ) {
+      scored.push(candidateResult);
+    }
   }
 
   scored.sort((a, b) => {
@@ -557,6 +805,7 @@ export function matchCompositionAgainstCatalog(
     lowMatchNotice,
     searchedCount: totalCatalogCount,
     candidateCount: candidateIndices.length,
+    algorithmVersion: ALGORITHM_VERSION,
     attribution: {
       name: 'Scento Perfume Database (CC BY 4.0)',
       url: 'https://www.scento.com/perfume-database',

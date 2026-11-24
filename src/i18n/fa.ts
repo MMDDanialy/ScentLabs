@@ -164,6 +164,7 @@ export const fa: TranslationResource = {
     },
     browseLayerNotes: 'مشاهده نت‌های {{layer}}',
     revealCta: 'آشکارسازی عطر من',
+    jumpToVessel: 'ظرف و تعادل',
   },
   reveal: {
     distillingEyebrow: 'تقطیر و تحلیل تطبیق با کل کاتالوگ',
@@ -182,6 +183,8 @@ export const fa: TranslationResource = {
     defaultAlchemist: 'مهمان آتلیه',
     familySuffix: 'خانواده {{family}}',
     critiqueTitle: 'نقد و تحلیل بویایی',
+    critiqueBadgeAi: 'هوش مصنوعی جمنای',
+    critiqueBadgeDeterministic: 'موتور قطعی آتلیه',
     critiqueAiSubtitle:
       'تحلیل ویرایشی مبتنی بر هوش مصنوعی و متکی بر فرمول فعال و پروفایل مرجع منطبق',
     critiqueDeterministicSubtitle: 'تحلیل قطعی آتلیه متکی بر فرمول فعال شما',
@@ -230,6 +233,9 @@ export const fa: TranslationResource = {
     pngExported: 'فایل PNG صادر شد',
     copySummary: 'کپی خلاصه',
     summaryCopied: 'خلاصه کپی شد',
+    clipboardFallbackTitle: 'کپی دستی خلاصه شناسنامه',
+    clipboardFallbackHint: 'دسترسی خودکار به کلیپ‌بورد توسط مرورگر محدود شد. متن خلاصه زیر را به‌صورت دستی کپی کنید.',
+    clipboardClose: 'بستن',
     saveToLibrary: 'ذخیره در کتابخانه',
     savedToLibrary: 'در کتابخانه آتلیه ذخیره شد',
     lowMatchNotice:
@@ -240,12 +246,17 @@ export const fa: TranslationResource = {
     eyebrow: 'آرشیو محلی',
     title: 'ساخته‌های ذخیره‌شده ({{count}})',
     closeAria: 'بستن کتابخانه ذخیره‌شده',
+    localOnlyNotice: 'به‌صورت خصوصی در همین مرورگر ذخیره می‌شود (فقط localStorage — بدون همگام‌سازی ابری).',
     emptyTitle: 'آرشیو شما خالی است',
     emptyDescription:
       'در آزمایشگاه یک ترکیب بسازید، عطر خود را آشکارسازی کنید و شناسنامه هویت عطر آن را برای مرور مجدد اینجا ذخیره نمایید.',
     loadInLab: 'بارگذاری در آزمایشگاه',
     viewPassport: 'مشاهده شناسنامه',
+    duplicate: 'کپی‌برداری',
+    duplicateSuffix: 'نسخه دوم',
     deleteAria: "حذف '{{name}}'",
+    confirmDelete: 'تأیید حذف',
+    cancelDelete: 'انصراف',
     bespoke: 'اختصاصی',
   },
   admin: {

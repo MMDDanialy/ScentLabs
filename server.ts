@@ -209,12 +209,21 @@ async function startServer() {
       }
 
       const text = response.text?.trim();
-      if (!text) {
+      const failsGrounding =
+        !text ||
+        text.length < 35 ||
+        text.length > 1800 ||
+        /\b(IFRA|skin toxicity|toxicology|chemical compliance|lasts\s+\d+\s*(hours?|hrs?))\b/i.test(
+          text
+        ) ||
+        /(ساعت\s+ماندگاری|تضمین\s+پوستی|استاندارد\s+IFRA)/.test(text);
+
+      if (failsGrounding) {
         res.json({
           critique: null,
           source: "deterministic",
           unavailable: true,
-          reason: "Empty response returned from Gemini API.",
+          reason: "Editorial AI response failed grounding validation.",
         });
         return;
       }

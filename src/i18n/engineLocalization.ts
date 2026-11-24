@@ -10,6 +10,7 @@ import type {
   OlfactoryFamily,
   ScentProfile,
 } from '../types/fragrance';
+import { generateCompositionTitle } from '../engine/formulationEngine';
 import { en } from './en';
 import { fa } from './fa';
 import type { Locale, LocalizedNoteCopy, LocalizedPresetCopy, TranslationResource } from './types';
@@ -206,6 +207,12 @@ export function getLocalizedDiagnostic(
         detail: 'در حال حاضر تنها یک ماده معطر در ظرف ترکیب فعال است.',
         suggestion: 'برای ساخت یک هرم سه‌لایه کلاسیک، دست‌کم با دو لایه مکمل دیگر ترکیب کنید.',
       };
+    case 'single-tier':
+      return {
+        title: 'تمرکز بر یک لایه هرم',
+        detail: 'تمام مواد انتخاب‌شده در یک لایه قرار دارند و تضاد ساختاری سایر لایه‌ها در فرمول دیده نمی‌شود.',
+        suggestion: 'برای شکل‌گیری تحول تدریجی رایحه، نت‌هایی از لایه‌های مکمل اضافه کنید.',
+      };
     case 'well-proportioned':
       return {
         title: 'معماری سه‌لایه متوازن',
@@ -312,6 +319,9 @@ export function getLocalizedMatchDifferences(
     if (diff.startsWith('Reference catalog entry lists flat notes only')) {
       return 'رکورد کاتالوگ مرجع فقط فهرست نت دارد (ساختار هرم ثبت نشده است)';
     }
+    if (diff.startsWith('Single-tier user formula concentrates 100%')) {
+      return 'فرمول شما ۱۰۰٪ بر یک لایه متمرکز است در حالی که عطر مرجع هرم سه‌لایه کامل دارد';
+    }
     if (diff.includes('Closely aligned')) {
       return 'تطبیق نزدیک در مواد تشکیل‌دهنده و نسبت‌های هرم بویایی';
     }
@@ -406,4 +416,50 @@ export function getLocalizedDeterministicCritique(
       : 'پُرشخصیت و دارای تأکید جهت‌دار مشخص';
 
   return `${fragranceName || 'این ترکیب'} ${openingClause}، ${heartClause} ${baseClause}. این فرمول با محوریت وجوه ${accordText}، تعادلی ${balanceTone} از خود نشان می‌دهد. ${matchSentence}`.trim();
+}
+
+export function getLocalizedCompositionTitle(
+  locale: Locale,
+  entries: NormalizedNoteEntry[],
+  balance: BalanceReport
+): string {
+  if (locale === 'en') {
+    return generateCompositionTitle(entries, balance);
+  }
+  if (entries.length === 0) return 'ترکیب آتلیه';
+
+  const ranked = [...entries].sort((a, b) => {
+    if (b.percentage !== a.percentage) return b.percentage - a.percentage;
+    return b.note.intensity - a.note.intensity;
+  });
+
+  const lead = getLocalizedNoteNameByIdOrName('fa', ranked[0].note.id);
+  const second = ranked[1] ? getLocalizedNoteNameByIdOrName('fa', ranked[1].note.id) : null;
+  const { pyramid, facets, dominantFamily } = balance;
+
+  let motif = 'آکورد';
+  if (pyramid.top >= 55 && facets.freshness >= 70) {
+    motif = 'کُلن آفتابی';
+  } else if (facets.smokiness >= 48) {
+    motif = facets.warmth >= 68 ? 'رزرو اخگر و دود' : 'نگارش ابسیدین';
+  } else if (facets.floralcy >= 64) {
+    motif = facets.freshness >= 45 ? 'شکوفه درخشان' : 'الکسیر مخملی';
+  } else if (facets.warmth >= 72 && facets.sweetness >= 60) {
+    motif = 'طلایی مخمل';
+  } else if (facets.dryness >= 72) {
+    motif = 'سیلوئت خشک';
+  } else if (facets.freshness >= 64) {
+    motif = 'نسیم شفاف';
+  } else if (pyramid.base >= 52) {
+    motif = 'عصاره عمیق';
+  } else if (dominantFamily === 'Aromatic & Herbal') {
+    motif = 'فوژر گیاهی';
+  } else if (dominantFamily === 'Spicy') {
+    motif = 'مطالعه ادویه‌ای';
+  }
+
+  if (second && ranked[0].percentage < 46 && ranked[1].percentage >= 18) {
+    return `${motif} ${lead} و ${second}`;
+  }
+  return `${motif} ${lead}`;
 }
