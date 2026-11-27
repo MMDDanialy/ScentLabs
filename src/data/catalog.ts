@@ -1,4 +1,5 @@
 import type { AtelierPreset, FragranceNote, OlfactoryFamily } from '../types/fragrance';
+import { MATERIAL_VISUAL_METADATA } from '../engine/materialColorEngine';
 
 export const OLFACTORY_FAMILIES: OlfactoryFamily[] = [
   'Citrus',
@@ -11,7 +12,7 @@ export const OLFACTORY_FAMILIES: OlfactoryFamily[] = [
   'Musk & Skin',
 ];
 
-export const FRAGRANCE_NOTES: FragranceNote[] = [
+const RAW_FRAGRANCE_NOTES: FragranceNote[] = [
   // TOP NOTES
   {
     id: 'bergamot',
@@ -369,6 +370,11 @@ export const FRAGRANCE_NOTES: FragranceNote[] = [
     facets: { warmth: 86, freshness: 10, sweetness: 82, dryness: 38, smokiness: 24, floralcy: 10 },
   },
 ];
+
+export const FRAGRANCE_NOTES: FragranceNote[] = RAW_FRAGRANCE_NOTES.map((note) => ({
+  ...note,
+  visualMeta: MATERIAL_VISUAL_METADATA[note.id],
+}));
 
 export const ATELIER_PRESETS: AtelierPreset[] = [
   {

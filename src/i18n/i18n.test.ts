@@ -139,3 +139,23 @@ test('Diagnostics, balance summaries, and deterministic critiques localize accur
   const faCitrusTitle = getLocalizedCompositionTitle('fa', singleTierEntries, singleTierBal);
   assert.ok(faCitrusTitle.includes('کُلن آفتابی'));
 });
+
+test('All fragrance gender classifications and classification sources localize in EN and FA', () => {
+  for (const g of ['masculine', 'feminine', 'unisex', 'unknown'] as const) {
+    assert.ok(en.domain.genders[g].length > 0);
+    assert.ok(fa.domain.genders[g].length > 0 && fa.domain.genders[g] !== en.domain.genders[g]);
+  }
+  for (const src of [
+    'explicit-metadata',
+    'title-designation',
+    'description-statement',
+    'curated-unisex-registry',
+    'unknown',
+  ] as const) {
+    assert.ok(en.domain.genderSources[src].length > 0);
+    assert.ok(
+      fa.domain.genderSources[src].length > 0 &&
+        fa.domain.genderSources[src] !== en.domain.genderSources[src]
+    );
+  }
+});

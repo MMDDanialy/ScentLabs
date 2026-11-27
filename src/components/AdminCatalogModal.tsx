@@ -8,12 +8,14 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import { getLocalizedGender } from '../i18n/engineLocalization';
 import { useI18n } from '../i18n/I18nContext';
 import type {
   AdminCatalogPage,
   AdminImportRecordInput,
   AdminImportResult,
   DataCompletenessStatus,
+  PerfumeGender,
 } from '../types/fragrance';
 
 interface AdminCatalogModalProps {
@@ -28,6 +30,7 @@ const SAMPLE_IMPORT_JSON = `[
     "house": "Atelier Archive",
     "year": 2026,
     "concentration": "eau-de-parfum",
+    "gender": "unisex",
     "family": "Sunlit Citrus",
     "character": ["citrusy", "herbal", "woody", "fresh"],
     "top_notes": ["Bergamot", "Pink Pepper"],
@@ -41,7 +44,7 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
   onClose,
   onCatalogUpdated,
 }) => {
-  const { dict, t, formatNumber, formatDate, getNoteName } = useI18n();
+  const { locale, dict, t, formatNumber, formatDate, getNoteName } = useI18n();
 
   const [data, setData] = useState<AdminCatalogPage | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,6 +52,8 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
 
   const [query, setQuery] = useState('');
   const [completeness, setCompleteness] = useState<DataCompletenessStatus | 'all'>('all');
+  const [genderFilter, setGenderFilter] = useState<PerfumeGender | 'all'>('all');
+  const [familyFilter, setFamilyFilter] = useState('');
   const [page, setPage] = useState(1);
 
   const [showImport, setShowImport] = useState(false);
@@ -65,8 +70,10 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
         page: String(page),
         limit: '12',
         completeness,
+        gender: genderFilter,
       });
       if (query.trim()) params.set('q', query.trim());
+      if (familyFilter) params.set('family', familyFilter);
 
       const res = await fetch(`/api/admin/catalog?${params.toString()}`);
       if (!res.ok) throw new Error(dict.admin.loadError);
@@ -77,7 +84,7 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [page, query, completeness, dict.admin.loadError]);
+  }, [page, query, completeness, genderFilter, familyFilter, dict.admin.loadError]);
 
   useEffect(() => {
     if (isOpen) {
@@ -225,6 +232,28 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
                 </div>
               </div>
 
+              {/* Count Clarification & Gender Metadata Summary */}
+              <div className="p-3.5 rounded-lg bg-[var(--vpl-bg-subtle)] border border-[var(--vpl-border-gold-soft)] space-y-1.5 text-xs text-[var(--vpl-text-secondary)]">
+                <div>
+                  {t('admin.countClarificationBanner', {
+                    total: formatNumber(stats.totalPerfumes),
+                    complete: formatNumber(stats.completePyramids),
+                    flat: formatNumber(stats.flatNotesOnly),
+                    accords: formatNumber(stats.starterAccordsCount ?? 4),
+                  })}
+                </div>
+                {stats.genderCounts && (
+                  <div className="text-[11px] font-mono text-[var(--vpl-text-muted)] tabular-nums">
+                    {t('admin.genderBreakdownLine', {
+                      masculine: formatNumber(stats.genderCounts.masculine ?? 0),
+                      feminine: formatNumber(stats.genderCounts.feminine ?? 0),
+                      unisex: formatNumber(stats.genderCounts.unisex ?? 0),
+                      unknown: formatNumber(stats.genderCounts.unknown ?? 0),
+                    })}
+                  </div>
+                )}
+              </div>
+
               {/* Provenance, Completeness & Freshness Strip */}
               <div className="p-4 rounded-lg bg-[var(--vpl-bg-elevated)] border border-[var(--vpl-border)] grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                 <div className="space-y-1.5">
@@ -292,10 +321,10 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
             </>
           )}
 
-          {/* Toolbar: Search, Filter, Incremental Import Toggle */}
-          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-            <div className="flex flex-1 gap-2">
-              <div className="relative flex-1">
+          {/* Toolbar: Search, Gender/Family/Completeness Filters, Incremental Import Toggle */}
+          <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+            <div className="flex flex-1 flex-wrap gap-2">
+              <div className="relative flex-1 min-w-[200px]">
                 <Search
                   className="w-4 h-4 text-[var(--vpl-text-muted)] absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none"
                   aria-hidden="true"
@@ -311,6 +340,39 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
                   className="w-full ps-9 pe-3 py-2 rounded-lg bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border-strong)] text-xs text-[var(--vpl-text)] placeholder:text-[var(--vpl-text-subtle)] focus-visible:outline-2 focus-visible:outline-[var(--vpl-accent)]"
                 />
               </div>
+
+              <select
+                aria-label={dict.admin.genderFilterAria}
+                value={genderFilter}
+                onChange={(e) => {
+                  setGenderFilter(e.target.value as PerfumeGender | 'all');
+                  setPage(1);
+                }}
+                className="px-3 py-2 rounded-lg bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border-strong)] text-xs text-[var(--vpl-text)] focus-visible:outline-2 focus-visible:outline-[var(--vpl-accent)] cursor-pointer"
+              >
+                <option value="all">{dict.admin.allGenders}</option>
+                <option value="masculine">{dict.domain.genders.masculine}</option>
+                <option value="feminine">{dict.domain.genders.feminine}</option>
+                <option value="unisex">{dict.domain.genders.unisex}</option>
+                <option value="unknown">{dict.domain.genders.unknown}</option>
+              </select>
+
+              <select
+                aria-label={dict.admin.familyFilterAria}
+                value={familyFilter}
+                onChange={(e) => {
+                  setFamilyFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="px-3 py-2 rounded-lg bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border-strong)] text-xs text-[var(--vpl-text)] focus-visible:outline-2 focus-visible:outline-[var(--vpl-accent)] cursor-pointer"
+              >
+                <option value="">{dict.admin.allFamilies}</option>
+                {(stats?.availableFamilies ?? []).map((fam) => (
+                  <option key={fam} value={fam}>
+                    {fam}
+                  </option>
+                ))}
+              </select>
 
               <select
                 aria-label={dict.admin.filterCompletenessAria}
@@ -390,6 +452,7 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
                 <thead className="bg-[var(--vpl-bg-elevated)] text-[var(--vpl-text-muted)] font-mono uppercase text-[11px] border-b border-[var(--vpl-border)]">
                   <tr>
                     <th className="py-2.5 px-4 text-start">{dict.admin.colPerfumeHouse}</th>
+                    <th className="py-2.5 px-3 text-start">{dict.admin.colGender}</th>
                     <th className="py-2.5 px-4 text-start">{dict.admin.colFamily}</th>
                     <th className="py-2.5 px-4 text-start">{dict.admin.colNotes}</th>
                     <th className="py-2.5 px-4 text-start">{dict.admin.colCompleteness}</th>
@@ -399,13 +462,13 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
                 <tbody className="divide-y divide-[var(--vpl-border-subtle)]">
                   {loading && !data ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-[var(--vpl-text-muted)]">
+                      <td colSpan={6} className="py-8 text-center text-[var(--vpl-text-muted)]">
                         {dict.admin.loadingRows}
                       </td>
                     </tr>
                   ) : data && data.items.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-[var(--vpl-text-muted)]">
+                      <td colSpan={6} className="py-8 text-center text-[var(--vpl-text-muted)]">
                         {dict.admin.emptyRows}
                       </td>
                     </tr>
@@ -432,6 +495,11 @@ export const AdminCatalogModal: React.FC<AdminCatalogModalProps> = ({
                               {item.releaseYear ? ` · ${item.releaseYear}` : ''}
                               {item.concentration ? ` · ${item.concentration}` : ''}
                             </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="inline-block px-2 py-0.5 rounded border border-[var(--vpl-border)] bg-[var(--vpl-bg-subtle)] text-[10px] font-mono text-[var(--vpl-text-secondary)] whitespace-nowrap">
+                              {getLocalizedGender(locale, item.gender)}
+                            </span>
                           </td>
                           <td className="py-3 px-4 text-[var(--vpl-text-body)]">{item.family}</td>
                           <td className="py-3 px-4 text-[var(--vpl-text-body)] max-w-xs truncate">

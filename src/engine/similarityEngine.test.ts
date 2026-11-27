@@ -205,7 +205,11 @@ test('TEST 7 — Single-Tier Composition handles pure top-tier blend safely and 
   assert.ok(res.matches.length >= 5);
   for (const m of res.matches) {
     assert.ok(Number.isFinite(m.similarityScore) && m.similarityScore >= 0 && m.similarityScore <= 98);
-    assert.ok(Number.isFinite(m.confidenceScore) && m.confidenceScore >= 20 && m.confidenceScore <= 98);
+    if (m.confidenceReliable) {
+      assert.ok(m.confidenceScore !== null && Number.isFinite(m.confidenceScore) && m.confidenceScore >= 15 && m.confidenceScore <= 96);
+    } else {
+      assert.equal(m.confidenceScore, null);
+    }
     if (m.perfume.pyramidComplete) {
       assert.ok(
         m.keyDifferences.some((d) => d.includes('Single-tier user formula')),
@@ -339,6 +343,7 @@ test('TEST 9 — Low-Confidence Incomplete Reference receives lower confidence w
   assert.equal(incompleteMatch.perfume.pyramidComplete, false);
   assert.equal(incompleteMatch.perfume.releaseYear, null);
   assert.equal(incompleteMatch.perfume.topNoteNames.length, 0);
+  assert.ok(completeMatch.confidenceScore !== null && incompleteMatch.confidenceScore !== null);
   assert.ok(
     incompleteMatch.confidenceScore < completeMatch.confidenceScore,
     `Expected lower confidence for minimal record (${incompleteMatch.confidenceScore}) vs complete (${completeMatch.confidenceScore})`
@@ -394,3 +399,117 @@ test('Known Libre-like reference composition ranks ysl-libre among top matches',
     `Expected ysl-libre in top 5, got: ${top5Ids.join(', ')}`
   );
 });
+
+test('TEST 11 — Calibrated Confidence varies honestly across matches and returns null for sparse/unreliable records', () => {
+  const repo = createLoadedRepo();
+
+  repo.upsertPerfumes(
+    [
+      {
+        id: 'test-sparse-minimal-2notes',
+        name: 'Sparse Two-Note Fragment',
+        house: 'Sparse House',
+        year: null,
+        concentration: null,
+        notes: ['Bergamot', 'Amber'],
+      },
+    ],
+    { persist: false }
+  );
+
+  const res = repo.match(
+    { bergamot: 5, amber: 5, sandalwood: 3, rose: 2 },
+    FRAGRANCE_NOTES,
+    { limit: 12 }
+  );
+
+  const numericConfs = res.matches
+    .filter((m) => m.confidenceReliable && m.confidenceScore !== null)
+    .map((m) => m.confidenceScore as number);
+
+  assert.ok(numericConfs.length >= 4);
+  const distinctValues = new Set(numericConfs);
+  assert.ok(distinctValues.size >= 3, `Expected varied calibrated confidence scores, got ${numericConfs.join(', ')}`);
+  assert.ok(numericConfs.every((c) => c <= 96 && c >= 15), 'Confidence scores must not saturate at 98-100%');
+
+  const sparseOnlyRes = repo.match({ bergamot: 5, amber: 5 }, FRAGRANCE_NOTES, { limit: 12 });
+  const sparseMatch = sparseOnlyRes.matches.find((m) => m.perfume.id === 'test-sparse-minimal-2notes');
+  if (sparseMatch) {
+    assert.equal(sparseMatch.confidenceReliable, false);
+    assert.equal(sparseMatch.confidenceScore, null);
+  }
+});
+
+test('TEST 12 — Gender Filtering excludes non-matching genders without altering similarityScore', () => {
+  const repo = createLoadedRepo();
+  const blend = { bergamot: 4, lavender: 4, sandalwood: 4, amber: 3 };
+
+  const allRes = repo.match(blend, FRAGRANCE_NOTES, { limit: 12, gender: 'all' });
+  for (const targetGender of ['masculine', 'feminine', 'unisex', 'unknown'] as const) {
+    const filteredRes = repo.match(blend, FRAGRANCE_NOTES, { limit: 12, gender: targetGender });
+    assert.equal(filteredRes.activeGenderFilter, targetGender);
+    for (const m of filteredRes.matches) {
+      assert.equal(m.perfume.gender, targetGender);
+      const inAll = allRes.matches.find((a) => a.perfume.id === m.perfume.id);
+      if (inAll) {
+        assert.equal(
+          m.similarityScore,
+          inAll.similarityScore,
+          `Gender filter must apply zero score penalty for ${m.perfume.id}`
+        );
+      }
+    }
+  }
+});
+
+test('TEST 13 — Explicit 5-Category Note Tier Classification separates exact, mismatched, and undocumented flat tiers', () => {
+  const repo = createLoadedRepo();
+  repo.upsertPerfumes(
+    [
+      {
+        id: 'test-tier-audit-pyramid',
+        name: 'Tier Audit Study',
+        house: 'Audit House',
+        year: 2025,
+        family: 'Salt & Mineral',
+        character: ['salty', 'fresh', 'woody'],
+        top_notes: ['Juniper', 'Salt', 'Bergamot'],
+        heart_notes: ['Sandalwood'], // deliberately placed in heart while user catalog places sandalwood in base
+        base_notes: ['Vanilla', 'Patchouli'],
+      },
+      {
+        id: 'test-tier-audit-flat',
+        name: 'Flat Tier Audit Study',
+        house: 'Audit House',
+        family: 'Salt & Mineral',
+        character: ['salty', 'fresh', 'woody'],
+        notes: ['Juniper', 'Salt', 'Bergamot', 'Sandalwood', 'Vanilla'],
+      },
+    ],
+    { persist: false }
+  );
+
+  const res = repo.match(
+    { juniper: 4, 'sea-salt': 4, bergamot: 3, sandalwood: 4, jasmine: 2 },
+    FRAGRANCE_NOTES,
+    { limit: 12 }
+  );
+
+  const pyramidAudit = res.matches.find((m) => m.perfume.id === 'test-tier-audit-pyramid');
+  assert.ok(pyramidAudit);
+  assert.ok(pyramidAudit.noteComparison.exactShared.some((d) => d.canonicalId === 'bergamot'));
+  assert.ok(
+    pyramidAudit.noteComparison.tierMismatchShared.some(
+      (d) => d.canonicalId === 'sandalwood' && d.userLayer === 'base' && d.refLayer === 'heart'
+    )
+  );
+  assert.ok(pyramidAudit.noteComparison.userOnly.some((u) => u.noteId === 'jasmine'));
+  assert.ok(pyramidAudit.noteComparison.referenceOnly.some((r) => r.canonicalId === 'vanilla'));
+
+  const flatAudit = res.matches.find((m) => m.perfume.id === 'test-tier-audit-flat');
+  assert.ok(flatAudit);
+  assert.equal(flatAudit.noteComparison.tierMismatchShared.length, 0, 'Flat records must never claim tier mismatch');
+  assert.ok(flatAudit.noteComparison.undocumentedTierShared.length >= 3, 'Flat shared notes must be labeled undocumentedTierShared');
+  assert.ok(flatAudit.noteComparison.unknownOrUndocumented.length >= 3);
+});
+

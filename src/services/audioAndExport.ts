@@ -5,86 +5,13 @@ import {
   getLocalizedAccord,
   getLocalizedDeterministicCritique,
   getLocalizedFamily,
+  getLocalizedGender,
   getLocalizedNoteNameByIdOrName,
   interpolate,
 } from '../i18n/engineLocalization';
 import type { Locale } from '../i18n/types';
 import type { ResolvedTheme } from '../theme/ThemeContext';
 import type { PassportData } from '../types/fragrance';
-
-class AtelierAudioEngine {
-  private ctx: AudioContext | null = null;
-  public enabled = false;
-
-  private ensureContext(): AudioContext | null {
-    if (!this.enabled || typeof window === 'undefined') return null;
-    const AudioCtx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return null;
-    if (!this.ctx) {
-      this.ctx = new AudioCtx();
-    }
-    if (this.ctx.state === 'suspended') {
-      void this.ctx.resume();
-    }
-    return this.ctx;
-  }
-
-  public setEnabled(next: boolean): void {
-    this.enabled = next;
-    if (next) {
-      this.playDrop(580);
-    }
-  }
-
-  public playDrop(pitchHz = 520): void {
-    const ctx = this.ensureContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(pitchHz, now);
-    osc.frequency.exponentialRampToValueAtTime(pitchHz * 1.35, now + 0.08);
-
-    gain.gain.setValueAtTime(0.001, now);
-    gain.gain.exponentialRampToValueAtTime(0.045, now + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.17);
-  }
-
-  public playRevealChord(): void {
-    const ctx = this.ensureContext();
-    if (!ctx) return;
-
-    const now = ctx.currentTime;
-    const freqs = [293.66, 369.99, 440, 587.33];
-    freqs.forEach((f, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(f, now + idx * 0.05);
-
-      gain.gain.setValueAtTime(0.0001, now + idx * 0.05);
-      gain.gain.exponentialRampToValueAtTime(0.025, now + idx * 0.05 + 0.08);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.05 + 0.9);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + idx * 0.05);
-      osc.stop(now + idx * 0.05 + 0.95);
-    });
-  }
-}
-
-export const atelierAudio = new AtelierAudioEngine();
 
 export function formatPassportSummary(passport: PassportData, locale: Locale = 'en'): string {
   const dict = getDictionary(locale);
@@ -112,14 +39,30 @@ export function formatPassportSummary(passport: PassportData, locale: Locale = '
   });
 
   const matchLines = matchesList.map((m, idx) => {
-    const line = interpolate(exp.summaryClosest, {
+    const confStr =
+      m.confidenceReliable && m.confidenceScore !== null
+        ? interpolate(dict.reveal.confidenceLabel, { score: n(m.confidenceScore) })
+        : dict.reveal.confidenceInsufficient;
+    const genderStr = getLocalizedGender(locale, m.perfume.gender);
+    const line = `${interpolate(exp.summaryClosest, {
       name: m.perfume.name,
       house: m.perfume.house,
       score: n(m.similarityScore),
-      confidence: n(m.confidenceScore ?? 80),
-    });
+      confidence: confStr,
+    })} [${genderStr}]`;
     return matchesList.length > 1 ? `${n(idx + 1)}. ${line}` : line;
   });
+
+  const critiqueText =
+    passport.critiqueSource === 'deterministic'
+      ? getLocalizedDeterministicCritique(
+          locale,
+          passport.fragranceName,
+          passport.entries,
+          passport.balance,
+          passport.topMatches[0] ?? null
+        )
+      : passport.editorialCritique;
 
   return [
     exp.summaryTitle,
@@ -139,6 +82,7 @@ export function formatPassportSummary(passport: PassportData, locale: Locale = '
     }),
     interpolate(exp.summaryPyramid, { top, heart, base }),
     ...matchLines,
+    `${exp.archiveNoteHeader}: ${critiqueText}`,
     exp.summaryNote,
   ]
     .filter(Boolean)
@@ -161,6 +105,7 @@ export async function copyPassportSummary(
   try {
     const textarea = document.createElement('textarea');
     textarea.value = text;
+    textarea.setAttribute('readonly', 'true');
     textarea.style.position = 'fixed';
     textarea.style.opacity = '0';
     document.body.appendChild(textarea);
@@ -182,36 +127,43 @@ function wrapCanvasText(
   lineHeight: number,
   maxLines: number
 ): number {
-  const words = text.split(/\s+/);
-  let line = '';
+  const paragraphs = text.split(/\n+/);
   let currentY = y;
   let linesDrawn = 0;
 
-  for (let i = 0; i < words.length; i++) {
-    const testLine = line ? `${line} ${words[i]}` : words[i];
-    if (ctx.measureText(testLine).width > maxWidth && line) {
+  for (let p = 0; p < paragraphs.length; p++) {
+    const words = paragraphs[p].trim().split(/\s+/).filter(Boolean);
+    let line = '';
+
+    for (let i = 0; i < words.length; i++) {
+      const testLine = line ? `${line} ${words[i]}` : words[i];
+      if (ctx.measureText(testLine).width > maxWidth && line) {
+        ctx.fillText(line, x, currentY);
+        line = words[i];
+        currentY += lineHeight;
+        linesDrawn += 1;
+        if (linesDrawn >= maxLines - 1) {
+          const remaining = [line, ...words.slice(i + 1)].join(' ');
+          let truncated = remaining;
+          while (ctx.measureText(`${truncated}...`).width > maxWidth && truncated.length > 0) {
+            truncated = truncated.slice(0, -1);
+          }
+          ctx.fillText(remaining === truncated ? truncated : `${truncated}...`, x, currentY);
+          return currentY + lineHeight;
+        }
+      } else {
+        line = testLine;
+      }
+    }
+
+    if (line) {
       ctx.fillText(line, x, currentY);
-      line = words[i];
       currentY += lineHeight;
       linesDrawn += 1;
-      if (linesDrawn >= maxLines - 1) {
-        const remaining = [line, ...words.slice(i + 1)].join(' ');
-        let truncated = remaining;
-        while (ctx.measureText(`${truncated}...`).width > maxWidth && truncated.length > 0) {
-          truncated = truncated.slice(0, -1);
-        }
-        ctx.fillText(remaining === truncated ? truncated : `${truncated}...`, x, currentY);
-        return currentY + lineHeight;
-      }
-    } else {
-      line = testLine;
+      if (linesDrawn >= maxLines) return currentY;
     }
   }
 
-  if (line) {
-    ctx.fillText(line, x, currentY);
-    currentY += lineHeight;
-  }
   return currentY;
 }
 
@@ -232,7 +184,7 @@ export async function exportPassportToPng(
 ): Promise<boolean> {
   try {
     const width = 1200;
-    const height = 1600;
+    const height = 1660;
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -278,12 +230,13 @@ export async function exportPassportToPng(
     }
     const brandSymbol = await loadBrandSymbolImage();
 
-    // Background
+    // Background & atmospheric liquid tint radial glow
     ctx.fillStyle = palette.bg;
     ctx.fillRect(0, 0, width, height);
 
+    const liquidHex = passport.balance.liquidAppearance?.liquidColorHex ?? passport.balance.blendedColorHex;
     const grad = ctx.createRadialGradient(600, 320, 40, 600, 320, 520);
-    grad.addColorStop(0, `${passport.balance.blendedColorHex}24`);
+    grad.addColorStop(0, `${liquidHex}26`);
     grad.addColorStop(1, isLight ? 'rgba(246, 241, 231, 0)' : 'rgba(10, 9, 8, 0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
@@ -358,23 +311,31 @@ export async function exportPassportToPng(
     ctx.stroke();
 
     // Title
+    const titleText = passport.fragranceName || dict.reveal.untitledComposition;
+    const prevTitleDir = ctx.direction;
+    ctx.direction = isRtl && /[\u0600-\u06FF]/.test(titleText) ? 'rtl' : 'ltr';
     ctx.fillStyle = palette.text;
-    ctx.font = `600 68px ${serifFont}`;
+    ctx.font = `600 66px ${serifFont}`;
     const titleEndY = wrapCanvasText(
       ctx,
-      passport.fragranceName || dict.reveal.untitledComposition,
+      titleText,
       anchorX,
-      284,
+      280,
       width - 300,
-      82,
+      80,
       2
     );
+    ctx.direction = prevTitleDir;
 
-    // Swatch orb on opposite trailing side
+    // Swatch orb with realistic liquid deep rim
     const orbX = isRtl ? 160 : width - 160;
+    const orbGrad = ctx.createRadialGradient(orbX - 12, 264, 6, orbX, 276, 46);
+    orbGrad.addColorStop(0, passport.balance.liquidAppearance?.meniscusColorHex ?? liquidHex);
+    orbGrad.addColorStop(0.65, liquidHex);
+    orbGrad.addColorStop(1, passport.balance.liquidAppearance?.deepColorHex ?? liquidHex);
     ctx.beginPath();
     ctx.arc(orbX, 276, 46, 0, Math.PI * 2);
-    ctx.fillStyle = passport.balance.blendedColorHex;
+    ctx.fillStyle = orbGrad;
     ctx.fill();
     ctx.strokeStyle = palette.swatchBorder;
     ctx.lineWidth = 2;
@@ -388,21 +349,19 @@ export async function exportPassportToPng(
     ctx.fillStyle = palette.textSecondary;
     ctx.font = `500 24px ${sansFont}`;
     ctx.fillText(
-      isRtl
-        ? `${dict.reveal.composedBy} ${alchemist}  ·  ${interpolate(dict.reveal.familySuffix, { family: famLabel })}`
-        : `${dict.reveal.composedBy} ${alchemist}  ·  ${interpolate(dict.reveal.familySuffix, { family: famLabel })}`,
+      `${dict.reveal.composedBy} ${alchemist}  ·  ${interpolate(dict.reveal.familySuffix, { family: famLabel })}`,
       anchorX,
       titleEndY + 12
     );
 
     // Pyramid section
-    const pyrY = titleEndY + 86;
+    const pyrY = titleEndY + 82;
     ctx.fillStyle = palette.accent;
     ctx.font = `500 18px ${monoFont}`;
     ctx.fillText(exp.pyramidCaption, anchorX, pyrY);
 
     const barX = 104;
-    const barY = pyrY + 26;
+    const barY = pyrY + 24;
     const barW = width - 208;
     const barH = 18;
     const topW = (barW * passport.balance.pyramid.top) / 100;
@@ -430,11 +389,11 @@ export async function exportPassportToPng(
     ctx.fillText(
       `${dict.domain.layers.top} ${pct(passport.balance.pyramid.top)}    ·    ${dict.domain.layers.heart} ${pct(passport.balance.pyramid.heart)}    ·    ${dict.domain.layers.base} ${pct(passport.balance.pyramid.base)}`,
       anchorX,
-      barY + 54
+      barY + 52
     );
 
     // Notes list by layer
-    let cursorY = barY + 114;
+    let cursorY = barY + 108;
     const layers: { key: 'top' | 'heart' | 'base'; label: string }[] = [
       { key: 'top', label: exp.topLabel },
       { key: 'heart', label: exp.heartLabel },
@@ -448,7 +407,7 @@ export async function exportPassportToPng(
       ctx.fillText(layer.label, anchorX, cursorY);
 
       ctx.fillStyle = palette.text;
-      ctx.font = `400 23px ${sansFont}`;
+      ctx.font = `400 22px ${sansFont}`;
       const line =
         items.length > 0
           ? items
@@ -458,17 +417,17 @@ export async function exportPassportToPng(
               )
               .join('  ·  ')
           : exp.noneIncluded;
-      cursorY = wrapCanvasText(ctx, line, anchorX, cursorY + 34, width - 208, 32, 2);
-      cursorY += 18;
+      cursorY = wrapCanvasText(ctx, line, anchorX, cursorY + 32, width - 208, 30, 2);
+      cursorY += 16;
     }
 
     // Closest reference match box
-    const matchY = Math.min(Math.max(cursorY + 18, 980), 1060);
+    const matchY = Math.min(Math.max(cursorY + 14, 930), 1020);
     ctx.fillStyle = palette.cardBg;
-    ctx.fillRect(104, matchY, width - 208, 210);
+    ctx.fillRect(104, matchY, width - 208, 224);
     ctx.strokeStyle = palette.borderOuter;
     ctx.lineWidth = 1.5;
-    ctx.strokeRect(104, matchY, width - 208, 210);
+    ctx.strokeRect(104, matchY, width - 208, 224);
 
     const topMatch = passport.topMatches[0];
     const boxAnchorX = isRtl ? width - 136 : 136;
@@ -476,24 +435,37 @@ export async function exportPassportToPng(
 
     ctx.fillStyle = palette.accent;
     ctx.font = `500 17px ${monoFont}`;
-    ctx.fillText(exp.similarityEstimateHeader, boxAnchorX, matchY + 42);
+    ctx.fillText(exp.similarityEstimateHeader, boxAnchorX, matchY + 40);
 
     if (topMatch) {
+      const matchTitleText = `${topMatch.perfume.name} — ${topMatch.perfume.house}`;
+      const prevMatchDir = ctx.direction;
+      ctx.direction = isRtl && /[\u0600-\u06FF]/.test(matchTitleText) ? 'rtl' : 'ltr';
       ctx.fillStyle = palette.text;
-      ctx.font = `600 34px ${serifFont}`;
+      ctx.font = `600 32px ${serifFont}`;
       wrapCanvasText(
         ctx,
-        `${topMatch.perfume.name} — ${topMatch.perfume.house}`,
+        matchTitleText,
         boxAnchorX,
-        matchY + 92,
-        width - 390,
-        40,
+        matchY + 86,
+        width - 420,
+        38,
         1
       );
+      ctx.direction = prevMatchDir;
 
       ctx.fillStyle = palette.accent;
-      ctx.font = `600 34px ${monoFont}`;
-      ctx.fillText(pct(topMatch.similarityScore), scoreAnchorX, matchY + 92);
+      ctx.font = `600 32px ${monoFont}`;
+      ctx.fillText(pct(topMatch.similarityScore), scoreAnchorX, matchY + 86);
+
+      ctx.fillStyle = palette.textMuted;
+      ctx.font = `400 18px ${sansFont}`;
+      const confLine =
+        topMatch.confidenceReliable && topMatch.confidenceScore !== null
+          ? interpolate(dict.reveal.confidenceLabel, { score: n(topMatch.confidenceScore) })
+          : dict.reveal.confidenceInsufficient;
+      const metaBadges = `${getLocalizedGender(locale, topMatch.perfume.gender)}  ·  ${interpolate(dict.reveal.weightedAlignmentBadge, { score: n(topMatch.weightedNoteAlignment) })}  ·  ${confLine}`;
+      ctx.fillText(metaBadges, boxAnchorX, matchY + 122);
 
       ctx.fillStyle = palette.textSecondary;
       ctx.font = `400 20px ${sansFont}`;
@@ -509,14 +481,22 @@ export async function exportPassportToPng(
           : interpolate(exp.sharedAccordsPrefix, {
               items: sharedAccords || dict.reveal.accordsFallback,
             });
-      wrapCanvasText(ctx, sharedLine, boxAnchorX, matchY + 138, width - 272, 28, 2);
+      wrapCanvasText(ctx, sharedLine, boxAnchorX, matchY + 160, width - 272, 28, 2);
     }
 
-    // Editorial note
-    const critY = Math.min(matchY + 244, height - 305);
+    // Editorial note (dynamically sized to fit available space cleanly above footer divider)
+    const critY = matchY + 258;
     ctx.fillStyle = palette.accent;
     ctx.font = `500 17px ${monoFont}`;
-    ctx.fillText(exp.archiveNoteHeader, anchorX, critY);
+    const sourceBadge =
+      passport.critiqueStatus === 'ai-live'
+        ? dict.reveal.critiqueBadgeAi
+        : passport.critiqueStatus === 'ai-cached'
+        ? dict.reveal.critiqueBadgeAiCached
+        : passport.critiqueStatus === 'deterministic-fallback'
+        ? dict.reveal.critiqueBadgeFallback
+        : dict.reveal.critiqueBadgeDeterministic;
+    ctx.fillText(`${exp.archiveNoteHeader}  ·  ${sourceBadge}`, anchorX, critY);
 
     const displayCritique =
       passport.critiqueSource === 'deterministic'
@@ -530,19 +510,21 @@ export async function exportPassportToPng(
         : passport.editorialCritique;
 
     ctx.fillStyle = palette.textSecondary;
-    ctx.font = `400 21px ${sansFont}`;
-    wrapCanvasText(ctx, displayCritique, anchorX, critY + 34, width - 208, 30, 4);
+    ctx.font = `400 19px ${sansFont}`;
+    const critiqueStartY = critY + 32;
+    const maxCritiqueLines = Math.max(6, Math.floor((height - 138 - critiqueStartY) / 27));
+    wrapCanvasText(ctx, displayCritique, anchorX, critiqueStartY, width - 208, 27, maxCritiqueLines);
 
     // Honest footer disclaimer
     ctx.strokeStyle = palette.borderInner;
     ctx.beginPath();
-    ctx.moveTo(104, height - 130);
-    ctx.lineTo(width - 104, height - 130);
+    ctx.moveTo(104, height - 118);
+    ctx.lineTo(width - 104, height - 118);
     ctx.stroke();
 
     ctx.fillStyle = palette.textMuted;
     ctx.font = `400 17px ${sansFont}`;
-    ctx.fillText(exp.footerDisclaimer, anchorX, height - 92);
+    ctx.fillText(exp.footerDisclaimer, anchorX, height - 80);
 
     const dataUrl = canvas.toDataURL('image/png');
     const link = document.createElement('a');

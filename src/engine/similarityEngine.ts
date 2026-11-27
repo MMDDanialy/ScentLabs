@@ -8,14 +8,16 @@ import type {
   MatchResult,
   MatchScoreBreakdown,
   MatchStrengthTier,
+  NoteComparisonClassification,
   NoteLayer,
   OlfactoryFamily,
+  PerfumeGender,
   ReferencePerfume,
 } from '../types/fragrance';
 import { computeBalanceReport, normalizeBlend } from './formulationEngine';
 import { NoteNormalizer } from './noteNormalization';
 
-export const ALGORITHM_VERSION = 'v2.1-hybrid-ratio';
+export const ALGORITHM_VERSION = 'v2.2-calibrated-tier';
 
 export interface CatalogIndex {
   perfumes: ReferencePerfume[];
@@ -39,7 +41,6 @@ const SCENTO_FAMILY_TO_LAB: Record<string, OlfactoryFamily[]> = {
   'smoke & leather': ['Smoky & Leather'],
   'salt & mineral': ['Aromatic & Herbal'],
   'oud court': ['Smoky & Leather', 'Woody'],
-  // Direct lab families (for custom / imported records)
   citrus: ['Citrus'],
   floral: ['Floral'],
   woody: ['Woody'],
@@ -164,11 +165,25 @@ export function validateMatchResult(
     return false;
   }
   if (
-    !Number.isFinite(result.confidenceScore) ||
-    result.confidenceScore < 0 ||
-    result.confidenceScore > 100
+    !Number.isFinite(result.weightedNoteAlignment) ||
+    result.weightedNoteAlignment < 0 ||
+    result.weightedNoteAlignment > 100
   ) {
-    console.error(`[SimilarityEngine] Invalid confidenceScore for ${result.perfume.id}: ${result.confidenceScore}`);
+    console.error(`[SimilarityEngine] Invalid weightedNoteAlignment for ${result.perfume.id}`);
+    return false;
+  }
+  if (result.confidenceReliable) {
+    if (
+      result.confidenceScore === null ||
+      !Number.isFinite(result.confidenceScore) ||
+      result.confidenceScore < 0 ||
+      result.confidenceScore > 100
+    ) {
+      console.error(`[SimilarityEngine] Invalid confidenceScore for ${result.perfume.id}: ${result.confidenceScore}`);
+      return false;
+    }
+  } else if (result.confidenceScore !== null) {
+    console.error(`[SimilarityEngine] Unreliable confidence must have null score for ${result.perfume.id}`);
     return false;
   }
   if (
@@ -198,6 +213,15 @@ export function validateMatchResult(
       console.error(`[SimilarityEngine] Contradictory user canonical ID '${ucid}' in both claimed and userOnly for ${result.perfume.id}`);
       return false;
     }
+  }
+
+  // Ensure the 3 shared noteComparison buckets strictly partition matchedDetails
+  const nc = result.noteComparison;
+  const totalPartitionedShared =
+    nc.exactShared.length + nc.tierMismatchShared.length + nc.undocumentedTierShared.length;
+  if (totalPartitionedShared !== result.matchedDetails.length) {
+    console.error(`[SimilarityEngine] Shared tier partition mismatch for ${result.perfume.id}`);
+    return false;
   }
 
   return true;
@@ -246,6 +270,7 @@ export function buildCatalogIndex(
 
 export interface MatchQueryOptions {
   limit?: number;
+  gender?: PerfumeGender | 'all';
 }
 
 export function matchCompositionAgainstCatalog(
@@ -256,10 +281,19 @@ export function matchCompositionAgainstCatalog(
   options: MatchQueryOptions = {}
 ): MatchApiResponse {
   const limit = clamp(options.limit ?? 8, 5, 12);
+  const activeGenderFilter: PerfumeGender | 'all' = options.gender ?? 'all';
   const entries = normalizeBlend(selection, notes);
   const totalCatalogCount = index.perfumes.length;
 
-  if (entries.length === 0 || totalCatalogCount === 0) {
+  const genderFilteredIndices: number[] = [];
+  for (let i = 0; i < totalCatalogCount; i++) {
+    if (activeGenderFilter === 'all' || index.perfumes[i].gender === activeGenderFilter) {
+      genderFilteredIndices.push(i);
+    }
+  }
+  const genderFilteredCount = genderFilteredIndices.length;
+
+  if (entries.length === 0 || totalCatalogCount === 0 || genderFilteredCount === 0) {
     return {
       matches: [],
       strongMatches: [],
@@ -267,9 +301,13 @@ export function matchCompositionAgainstCatalog(
       lowMatchNotice:
         totalCatalogCount === 0
           ? 'Reference catalog is currently empty.'
+          : genderFilteredCount === 0
+          ? 'No catalog records match the active gender filter.'
           : 'Add notes to the laboratory vessel to run reference matching.',
       searchedCount: totalCatalogCount,
       candidateCount: 0,
+      genderFilteredCount,
+      activeGenderFilter,
       algorithmVersion: ALGORITHM_VERSION,
       attribution: {
         name: 'Scento Perfume Database (CC BY 4.0)',
@@ -336,7 +374,6 @@ export function matchCompositionAgainstCatalog(
     u.share = u.share / userTotalShare;
   }
 
-  // Share-weighted user pyramid distribution P_user = (P_top, P_heart, P_base)
   const userPyramidVec = {
     top: balance.pyramid.top / 100,
     heart: balance.pyramid.heart / 100,
@@ -348,7 +385,6 @@ export function matchCompositionAgainstCatalog(
     balance.pyramid.base,
   ].filter((v) => v > 0).length;
 
-  // Share-weighted family and accord distributions
   const userFamilyWeights = new Map<OlfactoryFamily, number>();
   const userAccordWeightMap = new Map<string, number>();
   for (const u of userCanonicalEntries) {
@@ -366,26 +402,29 @@ export function matchCompositionAgainstCatalog(
     Array.from(userAccordWeightMap.values()).reduce((s, w) => s + w, 0)
   );
 
-  // 1. Candidate retrieval via inverted indexes across the entire active catalog
+  // 1. Candidate retrieval via inverted indexes + pre-filter by gender (no score penalty)
   const candidateIndexSet = new Set<number>();
+  const matchesGender = (idx: number) =>
+    activeGenderFilter === 'all' || index.perfumes[idx].gender === activeGenderFilter;
+
   for (const u of userCanonicalEntries) {
     for (const idx of index.noteToPerfumeIndices.get(u.canonicalId) ?? []) {
-      candidateIndexSet.add(idx);
+      if (matchesGender(idx)) candidateIndexSet.add(idx);
     }
     for (const rel of u.relatedIds) {
       for (const idx of index.noteToPerfumeIndices.get(rel) ?? []) {
-        candidateIndexSet.add(idx);
+        if (matchesGender(idx)) candidateIndexSet.add(idx);
       }
     }
     for (const idx of index.relatedToPerfumeIndices.get(u.canonicalId) ?? []) {
-      candidateIndexSet.add(idx);
+      if (matchesGender(idx)) candidateIndexSet.add(idx);
     }
   }
 
   const candidateIndices =
-    candidateIndexSet.size >= 20
+    candidateIndexSet.size >= Math.min(20, genderFilteredCount)
       ? Array.from(candidateIndexSet)
-      : index.perfumes.map((_, i) => i);
+      : genderFilteredIndices;
 
   const userTotalIdfMass = userCanonicalEntries.reduce(
     (sum, u) => sum + u.share * u.idf,
@@ -409,7 +448,6 @@ export function matchCompositionAgainstCatalog(
     const refHeartSet = new Set(perfume.heartCanonicalIds);
     const refBaseSet = new Set(perfume.baseCanonicalIds);
 
-    // Build deduplicated ordered canonical note dictionary for the reference
     const refUniqueMap = new Map<string, string>();
     for (const rawName of perfume.allNoteNames) {
       const cid = normalizer.resolve(rawName).canonicalId;
@@ -440,7 +478,6 @@ export function matchCompositionAgainstCatalog(
       return 'unspecified';
     };
 
-    // Precompute reference IDF mass and uniform-IDF prior q_c (no fabricated note percentages)
     let refTotalIdfMass = 0;
     const refIdfByCid = new Map<string, number>();
     for (const cid of refCanonIds) {
@@ -450,8 +487,6 @@ export function matchCompositionAgainstCatalog(
       refTotalIdfMass += idf;
     }
 
-    // Two-pass disjoint canonical matching:
-    // Pass 1 claims all exact canonical matches; Pass 2 matches remaining user notes to unclaimed related ref notes
     const claimedUserIds = new Set<string>();
     const claimedRefIds = new Set<string>();
     const matchedDetails: MatchedNoteDetail[] = [];
@@ -473,11 +508,14 @@ export function matchCompositionAgainstCatalog(
       claimedRefIds.add(u.canonicalId);
 
       const weight = u.share * u.idf;
-      const refLayer = getRefLayer(u.canonicalId, u.entry.note.layer);
-      const tierProx = perfume.pyramidComplete
-        ? tierProximity(u.entry.note.layer, refLayer)
-        : 0.55;
-      const aligned = perfume.pyramidComplete && refLayer === u.entry.note.layer;
+      const rawRefLayer = getRefLayer(u.canonicalId, u.entry.note.layer);
+      const refLayer: NoteLayer | 'unspecified' =
+        perfume.pyramidComplete || perfume.completeness === 'partial'
+          ? rawRefLayer
+          : 'unspecified';
+      const tierProx =
+        refLayer !== 'unspecified' ? tierProximity(u.entry.note.layer, refLayer) : 0.55;
+      const aligned = refLayer !== 'unspecified' && refLayer === u.entry.note.layer;
 
       const qRef =
         refTotalIdfMass > 0 ? (refIdfByCid.get(u.canonicalId) ?? u.idf) / refTotalIdfMass : 0;
@@ -501,7 +539,7 @@ export function matchCompositionAgainstCatalog(
       });
     }
 
-    // Pass 2: related aromatic material cousins (only unclaimed user + unclaimed ref canonical IDs)
+    // Pass 2: related aromatic material cousins (unclaimed user + unclaimed ref)
     for (const u of userCanonicalEntries) {
       if (claimedUserIds.has(u.canonicalId)) continue;
       const relatedHitId = u.relatedIds.find(
@@ -513,10 +551,13 @@ export function matchCompositionAgainstCatalog(
       claimedRefIds.add(relatedHitId);
 
       const weight = u.share * u.idf;
-      const refLayer = getRefLayer(relatedHitId, u.entry.note.layer);
-      const tierProx = perfume.pyramidComplete
-        ? tierProximity(u.entry.note.layer, refLayer)
-        : 0.48;
+      const rawRefLayer = getRefLayer(relatedHitId, u.entry.note.layer);
+      const refLayer: NoteLayer | 'unspecified' =
+        perfume.pyramidComplete || perfume.completeness === 'partial'
+          ? rawRefLayer
+          : 'unspecified';
+      const tierProx =
+        refLayer !== 'unspecified' ? tierProximity(u.entry.note.layer, refLayer) : 0.48;
       const relIdf = refIdfByCid.get(relatedHitId) ?? u.idf;
       const qRef = refTotalIdfMass > 0 ? relIdf / refTotalIdfMass : 0;
 
@@ -528,15 +569,17 @@ export function matchCompositionAgainstCatalog(
       tierWeightSum += weight * 0.5;
 
       const relMat = normalizer.getMaterial(relatedHitId);
-      sharedNotes.push(`${u.entry.note.name} (~${relMat?.name ?? refUniqueMap.get(relatedHitId) ?? relatedHitId})`);
+      const refDisplay = relMat?.name ?? refUniqueMap.get(relatedHitId) ?? relatedHitId;
+      sharedNotes.push(`${u.entry.note.name} (~${refDisplay})`);
       matchedDetails.push({
         noteName: u.entry.note.name,
         canonicalId: relatedHitId,
         userLayer: u.entry.note.layer,
         refLayer,
-        tierAligned: perfume.pyramidComplete && refLayer === u.entry.note.layer,
+        tierAligned: refLayer !== 'unspecified' && refLayer === u.entry.note.layer,
         matchType: 'related',
         userShare: u.entry.percentage,
+        matchedRefDisplay: refDisplay,
       });
     }
 
@@ -546,6 +589,7 @@ export function matchCompositionAgainstCatalog(
       0,
       1
     );
+    const weightedNoteAlignment = Math.round(userNoteCoverage * 100);
 
     // Component 2: Reference Coverage + Ratio-Sensitive Bhattacharyya Precision
     const refIdfRecall = refTotalIdfMass > 0 ? matchedRefIdfMass / refTotalIdfMass : 0;
@@ -560,7 +604,7 @@ export function matchCompositionAgainstCatalog(
       tierWeightSum > 0 ? clamp(tierScoreSum / tierWeightSum, 0, 1) : 0;
 
     // Component 4: Documented Pyramid Concentration Distribution Match (P_user vs P_ref)
-    let pyramidDistribution = 0.42; // Honest neutral prior for unrecorded pyramids
+    let pyramidDistribution = 0.42;
     if (perfume.pyramidComplete) {
       const nT = perfume.topCanonicalIds.length;
       const nH = perfume.heartCanonicalIds.length;
@@ -634,7 +678,6 @@ export function matchCompositionAgainstCatalog(
     const rmsDist = Math.sqrt(sqDist / facetKeys.length);
     const facetProximity = clamp(1 - rmsDist * 1.45, 0, 1);
 
-    // Explainable weighted hybrid total (weights sum to 1.00)
     let combined =
       0.24 * userNoteCoverage +
       0.18 * refPrecision +
@@ -643,7 +686,6 @@ export function matchCompositionAgainstCatalog(
       0.18 * familyAccord +
       0.14 * facetProximity;
 
-    // Honest evidence & completeness adjustments
     if (exactMatchCount === 0 && relatedMatchCount === 0) {
       combined *= 0.35;
     } else if (exactMatchCount === 0 && relatedMatchCount === 1) {
@@ -654,34 +696,80 @@ export function matchCompositionAgainstCatalog(
 
     const similarityScore = clamp(Math.round(combined * 100), 0, 98);
 
-    // Honest completeness-aware Confidence Score
-    const completenessFactor =
-      perfume.completeness === 'complete'
-        ? 1.0
-        : perfume.completeness === 'partial'
-        ? 0.78
-        : 0.6;
-    const richnessFactor = clamp(refCanonIds.length / 5, 0.35, 1.0);
-    const evidenceFactor =
-      exactMatchCount + relatedMatchCount * 0.5 >= 2
-        ? 1.0
-        : exactMatchCount + relatedMatchCount * 0.5 >= 1
-        ? 0.84
-        : 0.55;
-    const confidenceScore = clamp(
-      Math.round(completenessFactor * richnessFactor * evidenceFactor * 100),
-      20,
-      98
+    // Calibrated Non-Saturating Reference Data & Evidence Confidence Score
+    // Reflects genuine catalog metadata depth, note richness, match breadth, and tier specificity.
+    const hasSufficientData = !(
+      (perfume.completeness === 'minimal' && refCanonIds.length <= 3) ||
+      refCanonIds.length <= 2 ||
+      (exactMatchCount === 0 && relatedMatchCount === 0 && !perfume.pyramidComplete)
     );
 
+    let confidenceScore: number | null = null;
+    let confidenceReliable = hasSufficientData;
+    let confidenceReason = 'complete-pyramid';
+
+    if (!hasSufficientData) {
+      confidenceScore = null;
+      confidenceReliable = false;
+      confidenceReason =
+        refCanonIds.length <= 2
+          ? 'insufficient-note-record'
+          : perfume.completeness === 'minimal'
+          ? 'unrecorded-pyramid-sparse-notes'
+          : 'insufficient-evidence';
+    } else {
+      const metadataPts =
+        (perfume.completeness === 'complete'
+          ? 22
+          : perfume.completeness === 'partial'
+          ? 12
+          : 4) +
+        (perfume.releaseYear !== null ? 6 : 0) +
+        (perfume.perfumers.length > 0 ? 6 : 0) +
+        (perfume.gender !== 'unknown' ? 4 : 0) +
+        (perfume.concentration ? 2 : 0) +
+        (perfume.description && perfume.description.length > 48 ? 2 : 0);
+
+      const richnessPts = 22 * (1 - Math.exp(-refCanonIds.length / 7));
+
+      const effectiveMatches = exactMatchCount + 0.5 * relatedMatchCount;
+      const refTarget = Math.max(2, Math.min(6, refCanonIds.length * 0.45));
+      const evidenceRatio = clamp(effectiveMatches / refTarget, 0, 1);
+      const evidencePts = 24 * (0.65 * evidenceRatio + 0.35 * clamp(userNoteCoverage, 0, 1));
+
+      const documentedTierRatio =
+        matchedDetails.length > 0
+          ? matchedDetails.filter((d) => d.refLayer !== 'unspecified').length /
+            matchedDetails.length
+          : perfume.pyramidComplete
+          ? 0.75
+          : 0.2;
+      const tierPrecisionPts = 10 * documentedTierRatio;
+
+      confidenceScore = clamp(
+        Math.round(metadataPts + richnessPts + evidencePts + tierPrecisionPts),
+        15,
+        96
+      );
+
+      if (perfume.completeness !== 'complete') {
+        confidenceReason = 'partial-or-flat-pyramid';
+      } else if (perfume.releaseYear === null && perfume.perfumers.length === 0) {
+        confidenceReason = 'pyramid-complete-missing-archival-meta';
+      } else if (exactMatchCount === 0 && relatedMatchCount === 0) {
+        confidenceReason = 'accord-only-evidence';
+      }
+    }
+
     const matchTier: MatchStrengthTier =
-      similarityScore >= 46 && (exactMatchCount >= 2 || (exactMatchCount >= 1 && entries.length <= 2 && similarityScore >= 52))
+      similarityScore >= 46 &&
+      (exactMatchCount >= 2 || (exactMatchCount >= 1 && entries.length <= 2 && similarityScore >= 52))
         ? 'strong'
         : similarityScore >= 30 && (exactMatchCount >= 1 || relatedMatchCount >= 2)
         ? 'moderate'
         : 'exploratory';
 
-    // Disjoint partition sets for explainability
+    // Disjoint partition sets for explainability & 5-category classification
     const userOnlyEntries = userCanonicalEntries
       .filter((u) => !claimedUserIds.has(u.canonicalId))
       .sort((a, b) => b.share - a.share);
@@ -693,6 +781,50 @@ export function matchCompositionAgainstCatalog(
     );
     const refOnlyCanonicalIds = new Set(refOnlyEntries.map(([cid]) => cid));
     const refOnlyNoteNames = refOnlyEntries.map(([, display]) => display);
+
+    const exactShared = matchedDetails.filter(
+      (d) => d.refLayer !== 'unspecified' && d.refLayer === d.userLayer
+    );
+    const tierMismatchShared = matchedDetails.filter(
+      (d) => d.refLayer !== 'unspecified' && d.refLayer !== d.userLayer
+    );
+    const undocumentedTierShared = matchedDetails.filter(
+      (d) => d.refLayer === 'unspecified'
+    );
+
+    const referenceOnlyList = refOnlyEntries.map(([cid, display]) => ({
+      noteName: display,
+      canonicalId: cid,
+      layer:
+        perfume.pyramidComplete || perfume.completeness === 'partial'
+          ? getRefLayer(cid)
+          : ('unspecified' as const),
+    }));
+
+    const unknownOrUndocumentedSet = new Set<string>();
+    for (const d of undocumentedTierShared) {
+      unknownOrUndocumentedSet.add(d.matchedRefDisplay ?? d.noteName);
+    }
+    for (const ro of referenceOnlyList) {
+      if (ro.layer === 'unspecified') {
+        unknownOrUndocumentedSet.add(ro.noteName);
+      }
+    }
+
+    const noteComparison: NoteComparisonClassification = {
+      exactShared,
+      tierMismatchShared,
+      undocumentedTierShared,
+      userOnly: userOnlyEntries.map((u) => ({
+        noteId: u.entry.note.id,
+        noteName: u.entry.note.name,
+        canonicalId: u.canonicalId,
+        layer: u.entry.note.layer,
+        share: u.entry.percentage,
+      })),
+      referenceOnly: referenceOnlyList,
+      unknownOrUndocumented: Array.from(unknownOrUndocumentedSet),
+    };
 
     const keyDifferences: string[] = [];
     if (refOnlyNoteNames.length > 0) {
@@ -719,14 +851,14 @@ export function matchCompositionAgainstCatalog(
       keyDifferences.push('Closely aligned materials and structural pyramid proportions');
     }
 
-    const alignedCount = matchedDetails.filter((d) => d.tierAligned).length;
+    const alignedCount = exactShared.length;
     const explanation =
       exactMatchCount > 0
         ? `${exactMatchCount} exact canonical note${exactMatchCount > 1 ? 's' : ''} matched${
             perfume.pyramidComplete && alignedCount > 0
               ? ` (${alignedCount} in matching pyramid tier)`
               : ''
-          }; ${Math.round(userNoteCoverage * 100)}% weighted blend alignment.`
+          }; ${weightedNoteAlignment}% weighted blend alignment.`
         : relatedMatchCount > 0
         ? `Connected via ${relatedMatchCount} related aromatic material family link${
             relatedMatchCount > 1 ? 's' : ''
@@ -736,7 +868,7 @@ export function matchCompositionAgainstCatalog(
           } character distance.`;
 
     const scoreBreakdown: MatchScoreBreakdown = {
-      userNoteCoverage: Math.round(userNoteCoverage * 100),
+      userNoteCoverage: weightedNoteAlignment,
       refPrecision: Math.round(refPrecision * 100),
       tierNoteAlignment: Math.round(tierNoteAlignment * 100),
       pyramidDistribution: Math.round(pyramidDistribution * 100),
@@ -747,7 +879,10 @@ export function matchCompositionAgainstCatalog(
     const candidateResult: MatchResult = {
       perfume,
       similarityScore,
+      weightedNoteAlignment,
       confidenceScore,
+      confidenceReliable,
+      confidenceReason,
       matchTier,
       tierAlignmentScore: Math.round(tierNoteAlignment * 100),
       sharedNotes,
@@ -755,6 +890,7 @@ export function matchCompositionAgainstCatalog(
       userOnlyNoteNames,
       refOnlyNoteNames,
       matchedDetails,
+      noteComparison,
       sharedAccords,
       keyDifferences,
       explanation,
@@ -777,8 +913,10 @@ export function matchCompositionAgainstCatalog(
     if (b.similarityScore !== a.similarityScore) {
       return b.similarityScore - a.similarityScore;
     }
-    if (b.confidenceScore !== a.confidenceScore) {
-      return b.confidenceScore - a.confidenceScore;
+    const confA = a.confidenceScore ?? -1;
+    const confB = b.confidenceScore ?? -1;
+    if (confB !== confA) {
+      return confB - confA;
     }
     const rankA = a.perfume.popularityRank ?? 99999;
     const rankB = b.perfume.popularityRank ?? 99999;
@@ -805,6 +943,8 @@ export function matchCompositionAgainstCatalog(
     lowMatchNotice,
     searchedCount: totalCatalogCount,
     candidateCount: candidateIndices.length,
+    genderFilteredCount,
+    activeGenderFilter,
     algorithmVersion: ALGORITHM_VERSION,
     attribution: {
       name: 'Scento Perfume Database (CC BY 4.0)',

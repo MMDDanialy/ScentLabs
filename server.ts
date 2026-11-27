@@ -9,6 +9,7 @@ import type {
   AdminImportRecordInput,
   BlendSelection,
   DataCompletenessStatus,
+  PerfumeGender,
 } from "./src/types/fragrance";
 
 dotenv.config();
@@ -19,7 +20,23 @@ const __dirname = path.dirname(__filename);
 interface MatchRequestBody {
   selection?: BlendSelection;
   limit?: number;
+  gender?: PerfumeGender | "all";
 }
+
+function parseGenderParam(raw: unknown): PerfumeGender | "all" {
+  if (
+    raw === "masculine" ||
+    raw === "feminine" ||
+    raw === "unisex" ||
+    raw === "unknown"
+  ) {
+    return raw;
+  }
+  return "all";
+}
+
+const critiqueCache = new Map<string, { critique: string; model: string; createdAt: number }>();
+const CRITIQUE_CACHE_MAX = 120;
 
 interface CritiqueRequestBody {
   locale?: "en" | "fa";
@@ -89,7 +106,11 @@ async function startServer() {
     }
 
     const limit = typeof body.limit === "number" ? body.limit : 8;
-    const response = catalogRepo.match(sanitizedSelection, FRAGRANCE_NOTES, { limit });
+    const gender = parseGenderParam(body.gender);
+    const response = catalogRepo.match(sanitizedSelection, FRAGRANCE_NOTES, {
+      limit,
+      gender,
+    });
     res.json(response);
   });
 
@@ -99,6 +120,8 @@ async function startServer() {
     const limit = Number(req.query.limit ?? 15);
     const q = typeof req.query.q === "string" ? req.query.q : "";
     const source = typeof req.query.source === "string" ? req.query.source : "";
+    const family = typeof req.query.family === "string" ? req.query.family : "";
+    const gender = parseGenderParam(req.query.gender);
     const rawComp = typeof req.query.completeness === "string" ? req.query.completeness : "all";
     const completeness: DataCompletenessStatus | "all" =
       rawComp === "complete" || rawComp === "partial" || rawComp === "minimal"
@@ -111,6 +134,8 @@ async function startServer() {
       q,
       source,
       completeness,
+      gender,
+      family,
     });
     res.json(result);
   });
@@ -139,11 +164,36 @@ async function startServer() {
       return;
     }
 
+    const cacheKey = JSON.stringify({
+      locale: body.locale === "fa" ? "fa" : "en",
+      fragranceName: body.fragranceName ?? "",
+      alchemistName: body.alchemistName ?? "",
+      pyramid: body.pyramid ?? null,
+      dominantFamily: body.dominantFamily ?? null,
+      notes: body.notes ?? [],
+      topMatchId: body.topMatch ? `${body.topMatch.name}::${body.topMatch.house}::${body.topMatch.similarityScore}` : null,
+    });
+
+    const forceRefresh = Boolean((body as { forceRefresh?: boolean }).forceRefresh);
+    if (!forceRefresh) {
+      const cached = critiqueCache.get(cacheKey);
+      if (cached) {
+        res.json({
+          critique: cached.critique,
+          source: "ai",
+          cached: true,
+          model: cached.model,
+        });
+        return;
+      }
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
       res.json({
         critique: null,
         source: "deterministic",
+        cached: false,
         unavailable: true,
         reason: "Editorial AI critique unavailable: GEMINI_API_KEY is not configured.",
       });
@@ -222,18 +272,30 @@ async function startServer() {
         res.json({
           critique: null,
           source: "deterministic",
+          cached: false,
           unavailable: true,
           reason: "Editorial AI response failed grounding validation.",
         });
         return;
       }
 
-      res.json({ critique: text, source: "ai" });
+      if (critiqueCache.size >= CRITIQUE_CACHE_MAX) {
+        const oldestKey = critiqueCache.keys().next().value;
+        if (oldestKey) critiqueCache.delete(oldestKey);
+      }
+      critiqueCache.set(cacheKey, {
+        critique: text,
+        model: "gemini-4-hydrogen",
+        createdAt: Date.now(),
+      });
+
+      res.json({ critique: text, source: "ai", cached: false, model: "gemini-4-hydrogen" });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to generate editorial critique.";
       res.json({
         critique: null,
         source: "deterministic",
+        cached: false,
         unavailable: true,
         reason: message,
       });

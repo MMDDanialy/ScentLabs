@@ -15,26 +15,10 @@ import type {
   ScentProfile,
   TemperaturePreference,
 } from '../types/fragrance';
+import { calculateVesselLiquidAppearance } from './materialColorEngine';
 
 function clamp(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, val));
-}
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const clean = hex.replace('#', '');
-  if (clean.length !== 6) return { r: 212, g: 175, b: 110 };
-  const num = parseInt(clean, 16);
-  if (Number.isNaN(num)) return { r: 212, g: 175, b: 110 };
-  return {
-    r: (num >> 16) & 255,
-    g: (num >> 8) & 255,
-    b: num & 255,
-  };
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (c: number) => clamp(Math.round(c), 0, 255).toString(16).padStart(2, '0');
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 }
 
 export function normalizeBlend(
@@ -101,6 +85,7 @@ export function computeBalanceReport(
         },
       ],
       blendedColorHex: '#D4AF6E',
+      liquidAppearance: calculateVesselLiquidAppearance([]),
     };
   }
 
@@ -115,9 +100,6 @@ export function computeBalanceReport(
     smokiness: 0,
     floralcy: 0,
   };
-  let rSum = 0;
-  let gSum = 0;
-  let bSum = 0;
 
   for (const { note, drops } of entries) {
     const share = drops / totalDrops;
@@ -135,12 +117,9 @@ export function computeBalanceReport(
     facets.dryness += note.facets.dryness * share;
     facets.smokiness += note.facets.smokiness * share;
     facets.floralcy += note.facets.floralcy * share;
-
-    const rgb = hexToRgb(note.colorHex);
-    rSum += rgb.r * share;
-    gSum += rgb.g * share;
-    bSum += rgb.b * share;
   }
+
+  const liquidAppearance = calculateVesselLiquidAppearance(entries);
 
   // Exact integer percentages summing to 100
   const rawTop = (layerDrops.top / totalDrops) * 100;
@@ -329,7 +308,8 @@ export function computeBalanceReport(
     overallStatus,
     summary,
     diagnostics,
-    blendedColorHex: rgbToHex(rSum, gSum, bSum),
+    blendedColorHex: liquidAppearance.liquidColorHex,
+    liquidAppearance,
   };
 }
 

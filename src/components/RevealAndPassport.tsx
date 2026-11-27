@@ -3,6 +3,8 @@ import {
   ArrowLeft,
   BookmarkCheck,
   BookmarkPlus,
+  ChevronDown,
+  ChevronUp,
   Check,
   Copy,
   Download,
@@ -10,18 +12,36 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
-import { getLocalizedDeterministicCritique } from '../i18n/engineLocalization';
-import { copyPassportSummary, exportPassportToPng, formatPassportSummary } from '../services/audioAndExport';
+import {
+  getLocalizedDeterministicCritique,
+  getLocalizedGender,
+  getLocalizedGenderSource,
+  interpolate,
+} from '../i18n/engineLocalization';
+import {
+  copyPassportSummary,
+  exportPassportToPng,
+  formatPassportSummary,
+} from '../services/audioAndExport';
 import { useTheme } from '../theme/ThemeContext';
-import type { MatchResult, PassportData } from '../types/fragrance';
+import type {
+  CritiqueStatus,
+  MatchResult,
+  PassportData,
+  PerfumeGender,
+} from '../types/fragrance';
 
 interface RevealAndPassportProps {
   passport: PassportData;
   isDistilling: boolean;
   isCritiqueLoading: boolean;
+  isMatchingGender: boolean;
+  genderFilter: PerfumeGender | 'all';
   critiqueNotice: string | null;
   matchError: string | null;
   isSaved: boolean;
+  hasUnsavedChanges: boolean;
+  onChangeGenderFilter: (gender: PerfumeGender | 'all') => void;
   onUpdateTitle: (title: string) => void;
   onUpdateAlchemist: (name: string) => void;
   onRegenerateCritique: () => void;
@@ -30,18 +50,28 @@ interface RevealAndPassportProps {
   onReturnToLab: () => void;
 }
 
+const GENDER_FILTER_OPTIONS: (PerfumeGender | 'all')[] = [
+  'all',
+  'masculine',
+  'feminine',
+  'unisex',
+  'unknown',
+];
+
 const MatchCardRow: React.FC<{ match: MatchResult; index: number }> = ({ match, index }) => {
   const {
     locale,
     dict,
     t,
     formatNumber,
+    formatDate,
     getNoteName,
     getAccordLabel,
     getLayerLabel,
     getMatchExplanationCopy,
     getMatchDifferencesCopy,
   } = useI18n();
+  const [expanded, setExpanded] = useState(false);
   const listSep = locale === 'fa' ? '، ' : ', ';
 
   const tierLabel =
@@ -57,7 +87,9 @@ const MatchCardRow: React.FC<{ match: MatchResult; index: number }> = ({ match, 
       ? dict.reveal.completeness[compKey]
       : '';
 
-  const confidence = match.confidenceScore ?? 80;
+  const genderLabel = getLocalizedGender(locale, match.perfume.gender);
+  const genderSourceLabel = getLocalizedGenderSource(locale, match.perfume.genderSource);
+
   const provenance = match.perfume.provenance;
   const metaParts = [
     match.perfume.house,
@@ -68,8 +100,20 @@ const MatchCardRow: React.FC<{ match: MatchResult; index: number }> = ({ match, 
   const explanationText = getMatchExplanationCopy(match);
   const differences = getMatchDifferencesCopy(match);
 
+  const nc = match.noteComparison;
+  const breakdownEntries = match.scoreBreakdown
+    ? ([
+        ['userNoteCoverage', match.scoreBreakdown.userNoteCoverage],
+        ['refPrecision', match.scoreBreakdown.refPrecision],
+        ['tierNoteAlignment', match.scoreBreakdown.tierNoteAlignment],
+        ['pyramidDistribution', match.scoreBreakdown.pyramidDistribution],
+        ['familyAccord', match.scoreBreakdown.familyAccord],
+        ['facetProximity', match.scoreBreakdown.facetProximity],
+      ] as const)
+    : [];
+
   return (
-    <div className="py-4 first:pt-2 last:pb-1 space-y-2.5">
+    <div className="py-4 first:pt-2 last:pb-1 space-y-2.5" data-testid={`match-row-${match.perfume.id}`}>
       <div className="flex items-baseline justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -83,7 +127,8 @@ const MatchCardRow: React.FC<{ match: MatchResult; index: number }> = ({ match, 
               {metaParts.join(' · ')}
             </span>
           </div>
-          <div className="text-[11px] font-mono text-[var(--vpl-text-muted)] mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+
+          <div className="text-[11px] font-mono text-[var(--vpl-text-muted)] mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             <span
               className={
                 match.matchTier === 'strong'
@@ -95,8 +140,41 @@ const MatchCardRow: React.FC<{ match: MatchResult; index: number }> = ({ match, 
             >
               {tierLabel}
             </span>
+
             <span aria-hidden="true">·</span>
-            <span>{t('reveal.confidenceLabel', { score: formatNumber(confidence) })}</span>
+
+            {match.confidenceReliable && match.confidenceScore !== null ? (
+              <span data-testid="match-confidence-badge">
+                {t('reveal.confidenceLabel', { score: formatNumber(match.confidenceScore) })}
+              </span>
+            ) : (
+              <span
+                className="text-[var(--vpl-warning)]"
+                title={match.confidenceReason || dict.reveal.confidenceInsufficientReason}
+                data-testid="match-confidence-insufficient"
+              >
+                {dict.reveal.confidenceInsufficient}
+              </span>
+            )}
+
+            <span aria-hidden="true">·</span>
+
+            <span>
+              {t('reveal.weightedAlignmentBadge', {
+                score: formatNumber(match.weightedNoteAlignment ?? 0),
+              })}
+            </span>
+
+            <span aria-hidden="true">·</span>
+
+            <span
+              className="px-1.5 py-0.5 rounded bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border)] text-[var(--vpl-text-secondary)]"
+              title={genderSourceLabel}
+              data-testid="match-gender-badge"
+            >
+              {genderLabel}
+            </span>
+
             {completenessLabel && (
               <>
                 <span aria-hidden="true">·</span>
@@ -156,23 +234,290 @@ const MatchCardRow: React.FC<{ match: MatchResult; index: number }> = ({ match, 
         </div>
       </div>
 
-      {provenance && (
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[var(--vpl-text-subtle)] pt-1">
-          <span>
-            {t('reveal.sourceLabel', {
-              provider: provenance.provider,
-              license: provenance.license,
-            })}
-          </span>
-          <a
-            href={provenance.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[var(--vpl-accent)] hover:underline"
-          >
-            <span>{dict.reveal.viewReferenceRecord}</span>
-            <ExternalLink className="w-3 h-3 rtl:-scale-x-100" aria-hidden="true" />
-          </a>
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]">
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={expanded}
+          className="inline-flex items-center gap-1.5 text-[var(--vpl-accent)] hover:underline font-medium cursor-pointer"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{dict.reveal.hideProfileDetails}</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>{dict.reveal.openProfileDetails}</span>
+            </>
+          )}
+        </button>
+
+        {provenance && (
+          <div className="flex flex-wrap items-center gap-3 text-[var(--vpl-text-subtle)]">
+            <span>
+              {t('reveal.sourceLabel', {
+                provider: provenance.provider,
+                license: provenance.license,
+              })}
+            </span>
+            <a
+              href={provenance.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[var(--vpl-accent)] hover:underline"
+            >
+              <span>{dict.reveal.viewReferenceRecord}</span>
+              <ExternalLink className="w-3 h-3 rtl:-scale-x-100" aria-hidden="true" />
+            </a>
+          </div>
+        )}
+      </div>
+
+      {expanded && (
+        <div
+          className="mt-2 p-4 rounded-xl bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border)] space-y-4 text-xs"
+          data-testid={`match-details-${match.perfume.id}`}
+        >
+          {/* Metadata Transparency Row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pb-3 border-b border-[var(--vpl-border-subtle)]">
+            <div>
+              <div className="text-[10px] font-mono uppercase text-[var(--vpl-text-muted)]">
+                {dict.admin.colGender}
+              </div>
+              <div className="text-[var(--vpl-text)] font-medium mt-0.5">{genderLabel}</div>
+              <div className="text-[10px] text-[var(--vpl-text-subtle)]">{genderSourceLabel}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-mono uppercase text-[var(--vpl-text-muted)]">
+                {dict.reveal.concentrationLabel}
+              </div>
+              <div dir="ltr" className="text-[var(--vpl-text)] font-medium mt-0.5 capitalize text-start">
+                {match.perfume.concentration
+                  ? match.perfume.concentration.replace(/-/g, ' ')
+                  : dict.reveal.noneLabel}
+              </div>
+              <div className="text-[10px] text-[var(--vpl-text-subtle)] tabular-nums">
+                {match.perfume.releaseYear
+                  ? formatNumber(match.perfume.releaseYear, { useGrouping: false })
+                  : dict.reveal.yearUnrecorded}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-mono uppercase text-[var(--vpl-text-muted)]">
+                {dict.reveal.perfumersLabel}
+              </div>
+              <div dir="ltr" className="text-[var(--vpl-text)] font-medium mt-0.5 text-start">
+                {match.perfume.perfumers.length > 0
+                  ? match.perfume.perfumers.join(', ')
+                  : dict.reveal.noneLabel}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-mono uppercase text-[var(--vpl-text-muted)]">
+                {dict.reveal.verifiedDateLabel}
+              </div>
+              <div className="text-[var(--vpl-text)] font-mono mt-0.5">
+                {provenance?.verifiedAt
+                  ? formatDate(provenance.verifiedAt, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })
+                  : dict.reveal.noneLabel}
+              </div>
+              <div dir="ltr" className="text-[10px] text-[var(--vpl-text-subtle)] text-start">
+                {match.perfume.family}
+              </div>
+            </div>
+          </div>
+
+          {!match.confidenceReliable && (
+            <p className="text-[11px] text-[var(--vpl-warning)] bg-[var(--vpl-bg-card)] px-3 py-2 rounded border border-[var(--vpl-border)]">
+              {match.confidenceReason || dict.reveal.confidenceInsufficientReason}
+            </p>
+          )}
+
+          {/* Documented Reference Pyramid */}
+          <div className="space-y-2">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--vpl-accent)]">
+              {dict.reveal.documentedPyramidTitle}
+            </div>
+            {match.perfume.pyramidComplete ||
+            match.perfume.topNoteNames.length > 0 ||
+            match.perfume.heartNoteNames.length > 0 ||
+            match.perfume.baseNoteNames.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {(
+                  [
+                    ['top', match.perfume.topNoteNames],
+                    ['heart', match.perfume.heartNoteNames],
+                    ['base', match.perfume.baseNoteNames],
+                  ] as const
+                ).map(([layer, list]) => (
+                  <div
+                    key={layer}
+                    className="p-2.5 rounded-lg bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-subtle)]"
+                  >
+                    <div className="text-[10px] font-mono uppercase text-[var(--vpl-text-muted)] mb-1">
+                      {getLayerLabel(layer)}
+                    </div>
+                    <div dir="ltr" className="text-[11px] text-[var(--vpl-text-secondary)] text-start">
+                      {list.length > 0 ? list.join(', ') : dict.reveal.noneLabel}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-2.5 rounded-lg bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-subtle)] space-y-1.5">
+                <p className="text-[11px] text-[var(--vpl-warning)]">
+                  {dict.reveal.flatNotesOnlyNotice}
+                </p>
+                <p dir="ltr" className="text-[11px] text-[var(--vpl-text-secondary)] text-start">
+                  {match.perfume.allNoteNames.length > 0
+                    ? match.perfume.allNoteNames.join(', ')
+                    : dict.reveal.noneLabel}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* 5-Category Note Tier Audit */}
+          {nc && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--vpl-accent)]">
+                {dict.reveal.noteComparisonTitle}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="p-2.5 rounded-lg bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-subtle)]">
+                  <div className="text-[10px] font-mono text-[var(--vpl-success)] mb-1">
+                    {dict.reveal.ncExactShared} ({formatNumber(nc.exactShared.length)})
+                  </div>
+                  <div className="text-[11px] text-[var(--vpl-text-secondary)]">
+                    {nc.exactShared.length > 0
+                      ? nc.exactShared
+                          .map((d) => `${getNoteName(d.noteName)} [${getLayerLabel(d.userLayer)}]`)
+                          .join(listSep)
+                      : dict.reveal.noneLabel}
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-subtle)]">
+                  <div className="text-[10px] font-mono text-[var(--vpl-accent)] mb-1">
+                    {dict.reveal.ncTierMismatch} ({formatNumber(nc.tierMismatchShared.length)})
+                  </div>
+                  <div className="text-[11px] text-[var(--vpl-text-secondary)]">
+                    {nc.tierMismatchShared.length > 0
+                      ? nc.tierMismatchShared
+                          .map((d) => {
+                            const refLayerLabel =
+                              d.refLayer === 'unspecified'
+                                ? dict.reveal.ncUnknownUndocumented
+                                : getLayerLabel(d.refLayer);
+                            const swap = interpolate(dict.reveal.tierSwapFormat, {
+                              userLayer: getLayerLabel(d.userLayer),
+                              refLayer: refLayerLabel,
+                            });
+                            return `${getNoteName(d.noteName)} (${swap})`;
+                          })
+                          .join(listSep)
+                      : dict.reveal.noneLabel}
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-subtle)]">
+                  <div className="text-[10px] font-mono text-[var(--vpl-text-muted)] mb-1">
+                    {dict.reveal.ncUndocumentedShared} (
+                    {formatNumber(nc.undocumentedTierShared.length)})
+                  </div>
+                  <div className="text-[11px] text-[var(--vpl-text-secondary)]">
+                    {nc.undocumentedTierShared.length > 0
+                      ? nc.undocumentedTierShared
+                          .map((d) => `${getNoteName(d.noteName)} [${getLayerLabel(d.userLayer)}]`)
+                          .join(listSep)
+                      : dict.reveal.noneLabel}
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-subtle)]">
+                  <div className="text-[10px] font-mono text-[var(--vpl-text-muted)] mb-1">
+                    {dict.reveal.ncUserOnly} ({formatNumber(nc.userOnly.length)})
+                  </div>
+                  <div className="text-[11px] text-[var(--vpl-text-secondary)]">
+                    {nc.userOnly.length > 0
+                      ? nc.userOnly
+                          .map((u) => `${getNoteName(u.noteId)} (${formatNumber(u.share)}%)`)
+                          .join(listSep)
+                      : dict.reveal.noneLabel}
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-subtle)] sm:col-span-2">
+                  <div className="text-[10px] font-mono text-[var(--vpl-text-muted)] mb-1">
+                    {dict.reveal.ncReferenceOnly} ({formatNumber(nc.referenceOnly.length)})
+                  </div>
+                  <div dir="ltr" className="text-[11px] text-[var(--vpl-text-secondary)] text-start">
+                    {nc.referenceOnly.length > 0
+                      ? nc.referenceOnly
+                          .slice(0, 14)
+                          .map((r) =>
+                            r.layer === 'unspecified'
+                              ? r.noteName
+                              : `${r.noteName} (${r.layer})`
+                          )
+                          .join(', ')
+                      : dict.reveal.noneLabel}
+                  </div>
+                </div>
+
+                {nc.unknownOrUndocumented.length > 0 && (
+                  <div className="p-2.5 rounded-lg bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-subtle)] sm:col-span-2">
+                    <div className="text-[10px] font-mono text-[var(--vpl-warning)] mb-1">
+                      {dict.reveal.ncUnknownUndocumented} (
+                      {formatNumber(nc.unknownOrUndocumented.length)})
+                    </div>
+                    <div dir="ltr" className="text-[11px] text-[var(--vpl-text-secondary)] text-start">
+                      {nc.unknownOrUndocumented.join(', ')}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Algorithmic Score Breakdown */}
+          {breakdownEntries.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--vpl-accent)]">
+                {dict.reveal.scoreBreakdownTitle}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {breakdownEntries.map(([key, val]) => (
+                  <div key={key} className="space-y-1">
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-[var(--vpl-text-muted)]">
+                        {dict.reveal.breakdownMetrics[key]}
+                      </span>
+                      <span className="font-mono text-[var(--vpl-text)] tabular-nums">
+                        {formatNumber(val)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-[var(--vpl-bg-bar-track)] overflow-hidden">
+                      <div
+                        className="h-full bg-[var(--vpl-accent)] rounded-full"
+                        style={{ width: `${Math.min(100, Math.max(0, val))}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[10px] text-[var(--vpl-text-subtle)] pt-1 border-t border-[var(--vpl-border-subtle)]">
+            {dict.reveal.nonProprietaryNotice}
+          </p>
         </div>
       )}
     </div>
@@ -183,9 +528,13 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
   passport,
   isDistilling,
   isCritiqueLoading,
+  isMatchingGender,
+  genderFilter,
   critiqueNotice,
   matchError,
   isSaved,
+  hasUnsavedChanges,
+  onChangeGenderFilter,
   onUpdateTitle,
   onUpdateAlchemist,
   onRegenerateCritique,
@@ -297,9 +646,39 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
           passport.topMatches[0] ?? null
         );
 
+  const effectiveCritiqueStatus: CritiqueStatus =
+    passport.critiqueStatus ??
+    (passport.critiqueSource === 'ai' ? 'ai-live' : 'deterministic-default');
+
+  const critiqueBadgeText =
+    effectiveCritiqueStatus === 'ai-live'
+      ? dict.reveal.critiqueBadgeAi
+      : effectiveCritiqueStatus === 'ai-cached'
+      ? dict.reveal.critiqueBadgeAiCached
+      : effectiveCritiqueStatus === 'deterministic-fallback'
+      ? dict.reveal.critiqueBadgeFallback
+      : dict.reveal.critiqueBadgeDeterministic;
+
+  const critiqueSubtitleText =
+    effectiveCritiqueStatus === 'ai-live'
+      ? dict.reveal.critiqueAiSubtitle
+      : effectiveCritiqueStatus === 'ai-cached'
+      ? dict.reveal.critiqueCachedSubtitle
+      : effectiveCritiqueStatus === 'deterministic-fallback'
+      ? dict.reveal.critiqueFallbackSubtitle
+      : dict.reveal.critiqueDeterministicSubtitle;
+
+  const isAiActive =
+    effectiveCritiqueStatus === 'ai-live' || effectiveCritiqueStatus === 'ai-cached';
+
   const localizedFamily = passport.balance.dominantFamily
     ? getFamilyLabel(passport.balance.dominantFamily)
     : dict.library.bespoke;
+
+  const passportLiquidHex =
+    passport.balance.liquidAppearance?.liquidColorHex ?? passport.balance.blendedColorHex;
+  const passportDeepHex =
+    passport.balance.liquidAppearance?.deepColorHex ?? passportLiquidHex;
 
   return (
     <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8 py-8 pb-20 space-y-10">
@@ -395,21 +774,20 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
                     {dict.reveal.critiqueTitle}
                   </h2>
                   <span
+                    data-testid="critique-status-badge"
                     className={`px-2 py-0.5 rounded border text-[10px] font-mono uppercase tracking-wider ${
-                      passport.critiqueSource === 'ai'
+                      isAiActive
                         ? 'bg-[var(--vpl-accent-soft)] border-[var(--vpl-border-gold)] text-[var(--vpl-accent)]'
+                        : effectiveCritiqueStatus === 'deterministic-fallback'
+                        ? 'bg-[var(--vpl-bg-inset)] border-[var(--vpl-warning)] text-[var(--vpl-warning)]'
                         : 'bg-[var(--vpl-bg-subtle)] border-[var(--vpl-border-strong)] text-[var(--vpl-text-muted)]'
                     }`}
                   >
-                    {passport.critiqueSource === 'ai'
-                      ? dict.reveal.critiqueBadgeAi
-                      : dict.reveal.critiqueBadgeDeterministic}
+                    {critiqueBadgeText}
                   </span>
                 </div>
                 <p className="text-[11px] font-mono text-[var(--vpl-text-muted)] mt-0.5">
-                  {passport.critiqueSource === 'ai'
-                    ? dict.reveal.critiqueAiSubtitle
-                    : dict.reveal.critiqueDeterministicSubtitle}
+                  {critiqueSubtitleText}
                 </p>
               </div>
               <button
@@ -429,14 +807,16 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
             <p className="text-sm text-[var(--vpl-text-secondary)] leading-relaxed">
               {displayedCritique}
             </p>
-            {critiqueNotice && (
-              <p className="text-xs text-[var(--vpl-text-muted)] pt-1">{critiqueNotice}</p>
+            {(critiqueNotice || passport.critiqueReason) && (
+              <p className="text-xs text-[var(--vpl-text-muted)] pt-1">
+                {critiqueNotice || passport.critiqueReason}
+              </p>
             )}
           </section>
 
           {/* Data-Driven Reference Perfume Matches */}
           <section className="p-6 rounded-xl bg-[var(--vpl-bg-card)] border border-[var(--vpl-border)] space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+            <div className="space-y-3">
               <div>
                 <h2 className="font-serif text-xl font-semibold text-[var(--vpl-text)]">
                   {dict.reveal.matchesTitle}
@@ -449,6 +829,39 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
                       })
                     : dict.reveal.matchesSubtitleFallback}
                 </p>
+              </div>
+
+              {/* Gender Classification Filter Bar */}
+              <div
+                className="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--vpl-border-subtle)]"
+                role="group"
+                aria-label={dict.reveal.genderFilterLabel}
+              >
+                <span className="text-[11px] font-mono text-[var(--vpl-text-muted)]">
+                  {dict.reveal.genderFilterLabel}
+                </span>
+                {GENDER_FILTER_OPTIONS.map((gOpt) => {
+                  const active = genderFilter === gOpt;
+                  const label =
+                    gOpt === 'all' ? dict.reveal.allGenders : getLocalizedGender(locale, gOpt);
+                  return (
+                    <button
+                      key={gOpt}
+                      type="button"
+                      disabled={isMatchingGender}
+                      aria-pressed={active}
+                      onClick={() => onChangeGenderFilter(gOpt)}
+                      data-testid={`gender-filter-${gOpt}`}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap ${
+                        active
+                          ? 'bg-[var(--vpl-accent)] text-[var(--vpl-accent-text-on-fill)] border-[var(--vpl-accent)] font-semibold'
+                          : 'bg-[var(--vpl-bg-inset)] border-[var(--vpl-border-strong)] text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-accent)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -519,6 +932,12 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
                     </div>
                   </div>
                 )}
+
+                {strongAndModerate.length === 0 && exploratory.length === 0 && (
+                  <div className="p-4 rounded-lg bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border)] text-xs text-[var(--vpl-text-muted)] text-center">
+                    {dict.reveal.lowMatchNotice}
+                  </div>
+                )}
               </>
             )}
           </section>
@@ -559,8 +978,10 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
                 </div>
                 <span
                   className="w-8 h-8 rounded-full border border-[var(--vpl-border-strong)] shrink-0"
-                  style={{ backgroundColor: passport.balance.blendedColorHex }}
-                  title={passport.balance.blendedColorHex}
+                  style={{
+                    background: `radial-gradient(circle at 35% 30%, ${passportLiquidHex}, ${passportDeepHex})`,
+                  }}
+                  title={passportLiquidHex}
                   aria-hidden="true"
                 />
               </div>
@@ -699,13 +1120,14 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
           <button
             type="button"
             onClick={onSaveToLibrary}
+            data-testid="save-library-btn"
             className={`w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
-              isSaved
+              isSaved && !hasUnsavedChanges
                 ? 'bg-[var(--vpl-success-bg)] border-[var(--vpl-success-border)] text-[var(--vpl-success-text)]'
                 : 'border-[var(--vpl-border-gold)] bg-[var(--vpl-bg-card)] text-[var(--vpl-text)] hover:border-[var(--vpl-accent)]'
             }`}
           >
-            {isSaved ? (
+            {isSaved && !hasUnsavedChanges ? (
               <>
                 <BookmarkCheck className="w-4 h-4 text-[var(--vpl-success)]" aria-hidden="true" />
                 <span>{dict.reveal.savedToLibrary}</span>
@@ -713,7 +1135,11 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
             ) : (
               <>
                 <BookmarkPlus className="w-4 h-4 text-[var(--vpl-accent)]" aria-hidden="true" />
-                <span>{dict.reveal.saveToLibrary}</span>
+                <span>
+                  {isSaved && hasUnsavedChanges
+                    ? dict.reveal.updateSaved
+                    : dict.reveal.saveToLibrary}
+                </span>
               </>
             )}
           </button>
@@ -750,4 +1176,3 @@ export const RevealAndPassport: React.FC<RevealAndPassportProps> = ({
     </div>
   );
 };
-

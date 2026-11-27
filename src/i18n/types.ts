@@ -1,9 +1,13 @@
 import type {
   AtelierMood,
   DataCompletenessStatus,
+  GenderClassificationSource,
   IntensityPreference,
+  MaterialColorConfidence,
+  MaterialViscosityClass,
   NoteLayer,
   OlfactoryFamily,
+  PerfumeGender,
   TemperaturePreference,
 } from '../types/fragrance';
 
@@ -67,6 +71,7 @@ export interface TranslationResource {
     statTiersValue: string;
     statTiersLabel: string;
     statPerfumesLabel: string;
+    statPerfumesClarification: string;
     heroImgAlt: string;
     heroCaption: string;
     heroFallbackTitle: string;
@@ -98,11 +103,8 @@ export interface TranslationResource {
     presetPlaceholder: string;
     presetLabel: string;
     undo: string;
+    redo: string;
     reset: string;
-    audioOn: string;
-    audioOff: string;
-    audioMuteAria: string;
-    audioEnableAria: string;
     mobileReveal: string;
     dropSingular: string;
     dropPlural: string;
@@ -159,6 +161,11 @@ export interface TranslationResource {
     browseLayerNotes: string;
     revealCta: string;
     jumpToVessel: string;
+    viscosityLabels: Record<MaterialViscosityClass, string>;
+    colorConfidenceLabels: Record<MaterialColorConfidence, string>;
+    opticalDensityLabel: string;
+    colorProvenanceTitle: string;
+    colorProvenanceDetail: string;
   };
   reveal: {
     distillingEyebrow: string;
@@ -177,9 +184,13 @@ export interface TranslationResource {
     familySuffix: string;
     critiqueTitle: string;
     critiqueBadgeAi: string;
+    critiqueBadgeAiCached: string;
     critiqueBadgeDeterministic: string;
+    critiqueBadgeFallback: string;
     critiqueAiSubtitle: string;
+    critiqueCachedSubtitle: string;
     critiqueDeterministicSubtitle: string;
+    critiqueFallbackSubtitle: string;
     refreshNote: string;
     refining: string;
     critiqueUnavailableNotice: string;
@@ -189,6 +200,8 @@ export interface TranslationResource {
     matchesSubtitleFallback: string;
     matchErrorFallback: string;
     retryMatch: string;
+    genderFilterLabel: string;
+    allGenders: string;
     primaryAlignments: string;
     exploratoryResemblances: string;
     showFewer: string;
@@ -197,6 +210,9 @@ export interface TranslationResource {
     matchTierModerate: string;
     matchTierExploratory: string;
     confidenceLabel: string;
+    confidenceInsufficient: string;
+    confidenceInsufficientReason: string;
+    weightedAlignmentBadge: string;
     similarityEst: string;
     sharedElements: string;
     accordsFallback: string;
@@ -204,6 +220,31 @@ export interface TranslationResource {
     divergence: string;
     sourceLabel: string;
     viewReferenceRecord: string;
+    openProfileDetails: string;
+    hideProfileDetails: string;
+    documentedPyramidTitle: string;
+    flatNotesOnlyNotice: string;
+    perfumersLabel: string;
+    concentrationLabel: string;
+    verifiedDateLabel: string;
+    nonProprietaryNotice: string;
+    scoreBreakdownTitle: string;
+    breakdownMetrics: {
+      userNoteCoverage: string;
+      refPrecision: string;
+      tierNoteAlignment: string;
+      pyramidDistribution: string;
+      familyAccord: string;
+      facetProximity: string;
+    };
+    noteComparisonTitle: string;
+    ncExactShared: string;
+    ncTierMismatch: string;
+    ncUndocumentedShared: string;
+    ncUserOnly: string;
+    ncReferenceOnly: string;
+    ncUnknownUndocumented: string;
+    tierSwapFormat: string;
     completeness: Record<DataCompletenessStatus, string>;
     passportTitle: string;
     passportCrestAlt: string;
@@ -220,6 +261,7 @@ export interface TranslationResource {
     clipboardFallbackHint: string;
     clipboardClose: string;
     saveToLibrary: string;
+    updateSaved: string;
     savedToLibrary: string;
     lowMatchNotice: string;
     yearUnrecorded: string;
@@ -235,6 +277,11 @@ export interface TranslationResource {
     viewPassport: string;
     duplicate: string;
     duplicateSuffix: string;
+    editMeta: string;
+    saveMeta: string;
+    cancelMeta: string;
+    editTitleLabel: string;
+    editAlchemistLabel: string;
     deleteAria: string;
     confirmDelete: string;
     cancelDelete: string;
@@ -250,6 +297,9 @@ export interface TranslationResource {
     statNotes: string;
     statCompletePyramids: string;
     statFlatOnly: string;
+    statStarterAccords: string;
+    countClarificationBanner: string;
+    genderBreakdownLine: string;
     sourcesTitle: string;
     recordsCount: string;
     attributionLine: string;
@@ -260,6 +310,10 @@ export interface TranslationResource {
     lastUpdated: string;
     searchPlaceholder: string;
     filterCompletenessAria: string;
+    genderFilterAria: string;
+    familyFilterAria: string;
+    allGenders: string;
+    allFamilies: string;
     allCompleteness: string;
     completeOpt: string;
     partialOpt: string;
@@ -275,6 +329,7 @@ export interface TranslationResource {
     importSubmit: string;
     importing: string;
     colPerfumeHouse: string;
+    colGender: string;
     colFamily: string;
     colNotes: string;
     colCompleteness: string;
@@ -288,6 +343,8 @@ export interface TranslationResource {
   domain: {
     layers: Record<NoteLayer, string>;
     families: Record<OlfactoryFamily, string>;
+    genders: Record<PerfumeGender, string>;
+    genderSources: Record<GenderClassificationSource, string>;
     moodTags: Record<string, string>;
     seasonTags: Record<string, string>;
     accords: Record<string, string>;

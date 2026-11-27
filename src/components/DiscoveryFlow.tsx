@@ -8,6 +8,7 @@ import type {
   AtelierMood,
   AtelierPreset,
   BlendSelection,
+  CatalogStats,
   IntensityPreference,
   OlfactoryFamily,
   ScentProfile,
@@ -15,7 +16,7 @@ import type {
 } from '../types/fragrance';
 
 interface DiscoveryFlowProps {
-  referenceCount?: number;
+  catalogStats?: CatalogStats | null;
   onApplyProfileAndEnter: (profile: ScentProfile, starterBlend: BlendSelection) => void;
   onEnterLabDirect: () => void;
   onLoadPreset: (preset: AtelierPreset) => void;
@@ -29,7 +30,7 @@ const MOOD_VALUES: AtelierMood[] = [
 ];
 
 export const DiscoveryFlow: React.FC<DiscoveryFlowProps> = ({
-  referenceCount,
+  catalogStats,
   onApplyProfileAndEnter,
   onEnterLabDirect,
   onLoadPreset,
@@ -171,11 +172,20 @@ export const DiscoveryFlow: React.FC<DiscoveryFlowProps> = ({
             </div>
             <div>
               <div className="font-mono text-2xl font-semibold text-[var(--vpl-text)] tabular-nums">
-                {formatNumber(referenceCount ?? 1479)}
+                {formatNumber(catalogStats?.totalPerfumes ?? 1479)}
               </div>
               <div className="text-xs text-[var(--vpl-text-muted)] mt-1">
                 {dict.discovery.statPerfumesLabel}
               </div>
+              {catalogStats && (
+                <div className="text-[10px] font-mono text-[var(--vpl-text-subtle)] mt-0.5 leading-snug">
+                  {t('discovery.statPerfumesClarification', {
+                    complete: formatNumber(catalogStats.completePyramids),
+                    flat: formatNumber(catalogStats.flatNotesOnly),
+                    accords: formatNumber(catalogStats.starterAccordsCount),
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

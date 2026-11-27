@@ -19,6 +19,40 @@ export interface FacetProfile {
   floralcy: number;
 }
 
+export type MaterialColorConfidence = 'documented-typical' | 'variable-natural' | 'estimated';
+export type MaterialViscosityClass = 'water-thin' | 'light-oil' | 'medium-oil' | 'viscous-resin';
+
+export interface MaterialVisualMetadata {
+  materialId: string;
+  displayName: string;
+  tier: NoteLayer;
+  documentedLiquidColor: string;
+  documentedColorRange: [string, string];
+  visualColorHex: string;
+  opacity: number;
+  transparency: number;
+  visualIntensity: number;
+  viscosityClass: MaterialViscosityClass;
+  colorSource: string;
+  colorConfidence: MaterialColorConfidence;
+  bottleTintHex: string;
+  labelToneHex: string;
+}
+
+export interface VesselLiquidAppearance {
+  liquidColorHex: string;
+  deepColorHex: string;
+  meniscusColorHex: string;
+  effectiveOpacity: number;
+  fillPercent: number;
+  opticalDensity: number;
+  viscosityProfile: MaterialViscosityClass;
+  materialCount: number;
+  documentedCount: number;
+  variableCount: number;
+  estimatedCount: number;
+}
+
 export interface FragranceNote {
   id: string;
   name: string;
@@ -31,9 +65,19 @@ export interface FragranceNote {
   intensity: number;
   colorHex: string;
   facets: FacetProfile;
+  visualMeta?: MaterialVisualMetadata;
 }
 
 export type DataCompletenessStatus = 'complete' | 'partial' | 'minimal';
+
+export type PerfumeGender = 'masculine' | 'feminine' | 'unisex' | 'unknown';
+
+export type GenderClassificationSource =
+  | 'explicit-metadata'
+  | 'title-designation'
+  | 'description-statement'
+  | 'curated-unisex-registry'
+  | 'unknown';
 
 export interface PerfumeProvenance {
   provider: string;
@@ -51,6 +95,8 @@ export interface ReferencePerfume {
   releaseYear: number | null;
   concentration: string | null;
   perfumers: string[];
+  gender: PerfumeGender;
+  genderSource: GenderClassificationSource;
   family: string;
   secondaryFamily?: string;
   accords: string[];
@@ -114,6 +160,7 @@ export interface BalanceReport {
   summary: string;
   diagnostics: BalanceDiagnostic[];
   blendedColorHex: string;
+  liquidAppearance?: VesselLiquidAppearance;
 }
 
 export type MatchStrengthTier = 'strong' | 'moderate' | 'exploratory';
@@ -126,6 +173,26 @@ export interface MatchedNoteDetail {
   tierAligned: boolean;
   matchType: 'exact' | 'related';
   userShare: number;
+  matchedRefDisplay?: string;
+}
+
+export interface NoteComparisonClassification {
+  exactShared: MatchedNoteDetail[];
+  tierMismatchShared: MatchedNoteDetail[];
+  undocumentedTierShared: MatchedNoteDetail[];
+  userOnly: {
+    noteId: string;
+    noteName: string;
+    canonicalId: string;
+    layer: NoteLayer;
+    share: number;
+  }[];
+  referenceOnly: {
+    noteName: string;
+    canonicalId: string;
+    layer: NoteLayer | 'unspecified';
+  }[];
+  unknownOrUndocumented: string[];
 }
 
 export interface MatchScoreBreakdown {
@@ -140,7 +207,10 @@ export interface MatchScoreBreakdown {
 export interface MatchResult {
   perfume: ReferencePerfume;
   similarityScore: number;
-  confidenceScore: number;
+  weightedNoteAlignment: number;
+  confidenceScore: number | null;
+  confidenceReliable: boolean;
+  confidenceReason?: string;
   matchTier: MatchStrengthTier;
   tierAlignmentScore: number;
   sharedNotes: string[];
@@ -148,6 +218,7 @@ export interface MatchResult {
   userOnlyNoteNames?: string[];
   refOnlyNoteNames?: string[];
   matchedDetails: MatchedNoteDetail[];
+  noteComparison: NoteComparisonClassification;
   sharedAccords: string[];
   keyDifferences: string[];
   explanation: string;
@@ -161,6 +232,8 @@ export interface MatchApiResponse {
   lowMatchNotice: string | null;
   searchedCount: number;
   candidateCount: number;
+  genderFilteredCount?: number;
+  activeGenderFilter?: PerfumeGender | 'all';
   algorithmVersion?: string;
   attribution: {
     name: string;
@@ -187,6 +260,9 @@ export interface CatalogStats {
   missingYears: number;
   duplicateCount: number;
   failedImports: number;
+  genderCounts: Record<PerfumeGender, number>;
+  availableFamilies: string[];
+  starterAccordsCount: number;
   lastUpdatedAt: string;
   sources: CatalogSourceSummary[];
 }
@@ -206,6 +282,7 @@ export interface AdminImportRecordInput {
   year?: number | null;
   concentration?: string | null;
   perfumers?: string[];
+  gender?: string | null;
   family?: string;
   secondary_family?: string;
   character?: string[];
@@ -254,6 +331,12 @@ export interface AtelierPreset {
   selection: BlendSelection;
 }
 
+export type CritiqueStatus =
+  | 'ai-live'
+  | 'ai-cached'
+  | 'deterministic-default'
+  | 'deterministic-fallback';
+
 export interface PassportData {
   id: string;
   formulaCode: string;
@@ -267,6 +350,8 @@ export interface PassportData {
   matchSummary?: {
     searchedCount: number;
     candidateCount: number;
+    genderFilteredCount?: number;
+    activeGenderFilter?: PerfumeGender | 'all';
     lowMatchNotice: string | null;
     attributionName: string;
     attributionUrl: string;
@@ -276,6 +361,8 @@ export interface PassportData {
   seasonTags: string[];
   editorialCritique: string;
   critiqueSource: 'ai' | 'deterministic';
+  critiqueStatus?: CritiqueStatus;
+  critiqueReason?: string;
   algorithmVersion?: string;
   schemaVersion?: number;
 }

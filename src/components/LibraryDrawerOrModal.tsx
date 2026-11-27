@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BookOpen, CopyPlus, Trash2, X } from 'lucide-react';
+import { BookOpen, Check, CopyPlus, Pencil, Trash2, X } from 'lucide-react';
 import { useI18n } from '../i18n/I18nContext';
 import type { PassportData } from '../types/fragrance';
 
@@ -10,6 +10,7 @@ interface LibraryDrawerOrModalProps {
   onLoadInLab: (item: PassportData) => void;
   onOpenPassport: (item: PassportData) => void;
   onDuplicate: (item: PassportData) => void;
+  onUpdateMeta: (id: string, fragranceName: string, alchemistName: string) => void;
   onDelete: (id: string) => void;
 }
 
@@ -20,14 +21,19 @@ export const LibraryDrawerOrModal: React.FC<LibraryDrawerOrModalProps> = ({
   onLoadInLab,
   onOpenPassport,
   onDuplicate,
+  onUpdateMeta,
   onDelete,
 }) => {
   const { dict, formatDate, formatNumber, getFamilyLabel, locale, t } = useI18n();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editAlchemist, setEditAlchemist] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
       setConfirmDeleteId(null);
+      setEditingId(null);
       return;
     }
     const onKeyDown = (e: KeyboardEvent) => {
@@ -103,30 +109,90 @@ export const LibraryDrawerOrModal: React.FC<LibraryDrawerOrModalProps> = ({
                 ? getFamilyLabel(item.balance.dominantFamily)
                 : dict.library.bespoke;
               const isConfirming = confirmDeleteId === item.id;
+              const isEditing = editingId === item.id;
+              const swatchHex =
+                item.balance.liquidAppearance?.liquidColorHex ?? item.balance.blendedColorHex;
 
               return (
                 <article
                   key={item.id}
+                  data-testid={`library-item-${item.id}`}
                   className="p-4 rounded-xl bg-[var(--vpl-bg-card)] border border-[var(--vpl-border)] space-y-3"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-mono text-[var(--vpl-text-muted)]">
-                        <span dir="ltr">{item.formulaCode}</span> · {dateStr}
+                  {isEditing ? (
+                    <form
+                      className="space-y-2.5"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        onUpdateMeta(
+                          item.id,
+                          editTitle.trim() || dict.reveal.untitledComposition,
+                          editAlchemist.trim() || dict.reveal.defaultAlchemist
+                        );
+                        setEditingId(null);
+                      }}
+                    >
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase text-[var(--vpl-text-muted)] mb-1">
+                          {dict.library.editTitleLabel}
+                        </label>
+                        <input
+                          type="text"
+                          value={editTitle}
+                          maxLength={48}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-lg bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border-strong)] text-xs text-[var(--vpl-text)] focus-visible:outline-2 focus-visible:outline-[var(--vpl-accent)]"
+                        />
                       </div>
-                      <h3 className="font-serif text-xl font-semibold text-[var(--vpl-text)] truncate mt-0.5">
-                        {item.fragranceName}
-                      </h3>
-                      <p className="text-xs text-[var(--vpl-text-muted)] mt-0.5">
-                        {item.alchemistName} · {famLabel}
-                      </p>
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase text-[var(--vpl-text-muted)] mb-1">
+                          {dict.library.editAlchemistLabel}
+                        </label>
+                        <input
+                          type="text"
+                          value={editAlchemist}
+                          maxLength={36}
+                          onChange={(e) => setEditAlchemist(e.target.value)}
+                          className="w-full px-3 py-1.5 rounded-lg bg-[var(--vpl-bg-inset)] border border-[var(--vpl-border-strong)] text-xs text-[var(--vpl-text)] focus-visible:outline-2 focus-visible:outline-[var(--vpl-accent)]"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="submit"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--vpl-accent)] text-[var(--vpl-accent-text-on-fill)] text-xs font-semibold cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" aria-hidden="true" />
+                          <span>{dict.library.saveMeta}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingId(null)}
+                          className="px-3 py-1.5 rounded-lg border border-[var(--vpl-border)] text-xs text-[var(--vpl-text-muted)] cursor-pointer"
+                        >
+                          {dict.library.cancelMeta}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-mono text-[var(--vpl-text-muted)]">
+                          <span dir="ltr">{item.formulaCode}</span> · {dateStr}
+                        </div>
+                        <h3 className="font-serif text-xl font-semibold text-[var(--vpl-text)] truncate mt-0.5">
+                          {item.fragranceName}
+                        </h3>
+                        <p className="text-xs text-[var(--vpl-text-muted)] mt-0.5">
+                          {item.alchemistName} · {famLabel}
+                        </p>
+                      </div>
+                      <span
+                        className="w-5 h-5 rounded-full border border-[var(--vpl-border-strong)] shrink-0 mt-1"
+                        style={{ backgroundColor: swatchHex }}
+                        aria-hidden="true"
+                      />
                     </div>
-                    <span
-                      className="w-5 h-5 rounded-full border border-[var(--vpl-border-strong)] shrink-0 mt-1"
-                      style={{ backgroundColor: item.balance.blendedColorHex }}
-                      aria-hidden="true"
-                    />
-                  </div>
+                  )}
 
                   <div className="text-xs font-mono text-[var(--vpl-text-body)] tabular-nums">
                     {dict.domain.layers.top} {pct(item.balance.pyramid.top)} ·{' '}
@@ -145,16 +211,29 @@ export const LibraryDrawerOrModal: React.FC<LibraryDrawerOrModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onLoadInLab(item)}
-                      className="flex-1 min-w-[96px] px-3 py-2 rounded-lg bg-[var(--vpl-accent-soft)] border border-[var(--vpl-border-gold)] text-xs font-medium text-[var(--vpl-text)] hover:bg-[var(--vpl-accent)] hover:text-[var(--vpl-accent-text-on-fill)] transition-colors cursor-pointer whitespace-nowrap"
+                      className="flex-1 min-w-[84px] px-2.5 py-2 rounded-lg bg-[var(--vpl-accent-soft)] border border-[var(--vpl-border-gold)] text-xs font-medium text-[var(--vpl-text)] hover:bg-[var(--vpl-accent)] hover:text-[var(--vpl-accent-text-on-fill)] transition-colors cursor-pointer whitespace-nowrap"
                     >
                       {dict.library.loadInLab}
                     </button>
                     <button
                       type="button"
                       onClick={() => onOpenPassport(item)}
-                      className="flex-1 min-w-[96px] px-3 py-2 rounded-lg border border-[var(--vpl-border)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-border-gold)] transition-colors cursor-pointer whitespace-nowrap"
+                      className="flex-1 min-w-[84px] px-2.5 py-2 rounded-lg border border-[var(--vpl-border)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-border-gold)] transition-colors cursor-pointer whitespace-nowrap"
                     >
                       {dict.library.viewPassport}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(item.id);
+                        setEditTitle(item.fragranceName);
+                        setEditAlchemist(item.alchemistName);
+                      }}
+                      aria-label={`${dict.library.editMeta} ${item.fragranceName}`}
+                      title={dict.library.editMeta}
+                      className="p-2 rounded-lg border border-[var(--vpl-border)] text-[var(--vpl-text-muted)] hover:text-[var(--vpl-accent)] hover:border-[var(--vpl-border-gold)] transition-colors cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                     <button
                       type="button"
@@ -205,3 +284,4 @@ export const LibraryDrawerOrModal: React.FC<LibraryDrawerOrModalProps> = ({
     </div>
   );
 };
+

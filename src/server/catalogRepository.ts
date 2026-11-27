@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { ATELIER_PRESETS } from '../data/catalog';
 import type {
   AdminCatalogPage,
   AdminImportRecordInput,
@@ -9,6 +10,7 @@ import type {
   DataCompletenessStatus,
   FragranceNote,
   MatchApiResponse,
+  PerfumeGender,
   ReferencePerfume,
 } from '../types/fragrance';
 import {
@@ -21,6 +23,7 @@ import {
   type CatalogIndex,
   matchCompositionAgainstCatalog,
 } from '../engine/similarityEngine';
+import { classifyPerfumeGender } from './genderClassifier';
 
 interface RawScentoPerfume {
   id?: string;
@@ -30,6 +33,7 @@ interface RawScentoPerfume {
   year?: number | null;
   perfumers?: string[];
   concentration?: string | null;
+  gender?: string | null;
   family?: string;
   secondary_family?: string;
   character?: string[];
@@ -249,6 +253,20 @@ export class CatalogRepository {
       ? raw.character.map((c) => c.trim()).filter(Boolean)
       : [];
 
+    const family = (raw.family ?? '').trim() || 'Unclassified';
+    const description =
+      (raw.description ?? '').trim() ||
+      `${name} by ${house}: ${allNoteNames.slice(0, 6).join(', ')}.`;
+
+    const genderInfo = classifyPerfumeGender({
+      id,
+      name,
+      houseId: raw.house_id,
+      house,
+      description: raw.description ?? '',
+      explicitGender: raw.gender ?? null,
+    });
+
     return {
       id,
       name,
@@ -259,7 +277,9 @@ export class CatalogRepository {
       perfumers: Array.isArray(raw.perfumers)
         ? raw.perfumers.map((p) => p.trim()).filter(Boolean)
         : [],
-      family: (raw.family ?? '').trim() || 'Unclassified',
+      gender: genderInfo.gender,
+      genderSource: genderInfo.source,
+      family,
       secondaryFamily: (raw.secondary_family ?? '').trim() || undefined,
       accords,
       topNoteNames: topNotes,
@@ -274,9 +294,7 @@ export class CatalogRepository {
       seasons: Array.isArray(raw.seasons)
         ? raw.seasons.map((s) => s.trim()).filter(Boolean)
         : [],
-      description:
-        (raw.description ?? '').trim() ||
-        `${name} by ${house}: ${allNoteNames.slice(0, 6).join(', ')}.`,
+      description,
       completeness,
       pyramidComplete,
       popularityRank:
@@ -331,7 +349,7 @@ export class CatalogRepository {
   public match(
     selection: BlendSelection,
     notes: FragranceNote[],
-    options: { limit?: number } = {}
+    options: { limit?: number; gender?: PerfumeGender | 'all' } = {}
   ): MatchApiResponse {
     return matchCompositionAgainstCatalog(
       selection,
@@ -425,6 +443,13 @@ export class CatalogRepository {
     let partialPyramids = 0;
     let flatNotesOnly = 0;
     let missingYears = 0;
+    const genderCounts: Record<PerfumeGender, number> = {
+      masculine: 0,
+      feminine: 0,
+      unisex: 0,
+      unknown: 0,
+    };
+    const familySet = new Set<string>();
 
     const sourceMap = new Map<
       string,
@@ -437,6 +462,9 @@ export class CatalogRepository {
       else flatNotesOnly += 1;
 
       if (p.releaseYear === null) missingYears += 1;
+
+      genderCounts[p.gender] = (genderCounts[p.gender] ?? 0) + 1;
+      if (p.family) familySet.add(p.family);
 
       const sKey = `${p.provenance.provider}::${p.provenance.license}`;
       const existing = sourceMap.get(sKey);
@@ -466,6 +494,9 @@ export class CatalogRepository {
       missingYears,
       duplicateCount: this.duplicateCount,
       failedImports: this.failedImports,
+      genderCounts,
+      availableFamilies: Array.from(familySet).sort((a, b) => a.localeCompare(b)),
+      starterAccordsCount: ATELIER_PRESETS.length,
       lastUpdatedAt: this.lastUpdatedAt,
       sources: Array.from(sourceMap.values()).sort((a, b) => b.count - a.count),
     };
@@ -477,18 +508,24 @@ export class CatalogRepository {
     q?: string;
     source?: string;
     completeness?: DataCompletenessStatus | 'all';
+    gender?: PerfumeGender | 'all';
+    family?: string;
   }): AdminCatalogPage {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(50, Math.max(5, params.limit ?? 15));
     const q = (params.q ?? '').trim().toLowerCase();
     const source = (params.source ?? '').trim();
     const completeness = params.completeness ?? 'all';
+    const gender = params.gender ?? 'all';
+    const family = (params.family ?? '').trim();
 
     const filtered = this.perfumes.filter((p) => {
       if (completeness !== 'all' && p.completeness !== completeness) return false;
+      if (gender !== 'all' && p.gender !== gender) return false;
+      if (family && p.family.toLowerCase() !== family.toLowerCase()) return false;
       if (source && p.provenance.provider !== source) return false;
       if (q) {
-        const hay = `${p.name} ${p.house} ${p.family} ${p.allNoteNames.join(' ')}`.toLowerCase();
+        const hay = `${p.name} ${p.house} ${p.family} ${p.gender} ${p.allNoteNames.join(' ')}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;

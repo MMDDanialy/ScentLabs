@@ -5,12 +5,11 @@ import {
   FlaskConical,
   Minus,
   Plus,
+  Redo2,
   RotateCcw,
   Search,
   Trash2,
   Undo2,
-  Volume2,
-  VolumeX,
 } from 'lucide-react';
 import { ATELIER_PRESETS, FRAGRANCE_NOTES, OLFACTORY_FAMILIES } from '../data/catalog';
 import { useI18n } from '../i18n/I18nContext';
@@ -31,11 +30,11 @@ interface ApothecaryLabProps {
   balance: BalanceReport;
   scentProfile: ScentProfile | null;
   canUndo: boolean;
-  soundEnabled: boolean;
-  onToggleSound: () => void;
+  canRedo: boolean;
   onAdjustNote: (noteId: string, delta: number) => void;
   onRemoveNote: (noteId: string) => void;
   onUndo: () => void;
+  onRedo: () => void;
   onReset: () => void;
   onLoadPreset: (preset: AtelierPreset) => void;
   onReveal: () => void;
@@ -47,11 +46,11 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
   balance,
   scentProfile,
   canUndo,
-  soundEnabled,
-  onToggleSound,
+  canRedo,
   onAdjustNote,
   onRemoveNote,
   onUndo,
+  onRedo,
   onReset,
   onLoadPreset,
   onReveal,
@@ -169,7 +168,7 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
             type="button"
             onClick={onUndo}
             disabled={!canUndo}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[var(--vpl-border-strong)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-accent)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--vpl-border-strong)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-accent)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer whitespace-nowrap"
           >
             <Undo2 className="w-3.5 h-3.5 rtl:-scale-x-100" aria-hidden="true" />
             <span>{dict.lab.undo}</span>
@@ -177,48 +176,50 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
 
           <button
             type="button"
-            onClick={onReset}
-            disabled={balance.totalDrops === 0}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[var(--vpl-border-strong)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-danger-border)] hover:text-[var(--vpl-danger)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer whitespace-nowrap"
+            onClick={onRedo}
+            disabled={!canRedo}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--vpl-border-strong)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-accent)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer whitespace-nowrap"
           >
-            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>{dict.lab.reset}</span>
+            <Redo2 className="w-3.5 h-3.5 rtl:-scale-x-100" aria-hidden="true" />
+            <span>{dict.lab.redo}</span>
           </button>
 
           <button
             type="button"
-            onClick={onToggleSound}
-            aria-pressed={soundEnabled}
-            aria-label={soundEnabled ? dict.lab.audioMuteAria : dict.lab.audioEnableAria}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-              soundEnabled
-                ? 'bg-[var(--vpl-accent-soft)] border-[var(--vpl-border-gold)] text-[var(--vpl-text)]'
-                : 'border-[var(--vpl-border-strong)] text-[var(--vpl-text-muted)] hover:text-[var(--vpl-text)]'
-            }`}
+            onClick={onReset}
+            disabled={balance.totalDrops === 0}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--vpl-border-strong)] text-xs font-medium text-[var(--vpl-text-secondary)] hover:border-[var(--vpl-danger-border)] hover:text-[var(--vpl-danger)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer whitespace-nowrap"
           >
-            {soundEnabled ? (
-              <Volume2 className="w-3.5 h-3.5 text-[var(--vpl-accent)]" aria-hidden="true" />
-            ) : (
-              <VolumeX className="w-3.5 h-3.5" aria-hidden="true" />
-            )}
-            <span>{soundEnabled ? dict.lab.audioOn : dict.lab.audioOff}</span>
+            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+            <span>{dict.lab.reset}</span>
           </button>
         </div>
       </div>
 
       {/* Mobile Compact Vessel Summary */}
-      <div className="lg:hidden mb-5 p-4 rounded-xl bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-gold)] flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[11px] font-mono uppercase text-[var(--vpl-accent)] tabular-nums">
-            {formatNumber(balance.totalDrops)}{' '}
-            {balance.totalDrops === 1 ? dict.lab.dropSingular : dict.lab.dropPlural} ·{' '}
-            {formatNumber(balance.noteCount)}{' '}
-            {balance.noteCount === 1 ? dict.lab.noteSingular : dict.lab.notePlural}
-          </div>
-          <div className="text-xs font-mono text-[var(--vpl-text-body)] truncate mt-0.5 tabular-nums">
-            {getLayerLabel('top')} {formatNumber(balance.pyramid.top)}% · {getLayerLabel('heart')}{' '}
-            {formatNumber(balance.pyramid.heart)}% · {getLayerLabel('base')}{' '}
-            {formatNumber(balance.pyramid.base)}%
+      <div className="lg:hidden mb-5 p-3.5 rounded-xl bg-[var(--vpl-bg-card)] border border-[var(--vpl-border-gold)] flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span
+            className="w-7 h-7 rounded-full border border-[var(--vpl-border-strong)] shrink-0 transition-colors duration-300"
+            style={{
+              backgroundColor:
+                balance.liquidAppearance?.liquidColorHex ?? balance.blendedColorHex,
+            }}
+            data-testid="mobile-vessel-swatch"
+            aria-hidden="true"
+          />
+          <div className="min-w-0">
+            <div className="text-[11px] font-mono uppercase text-[var(--vpl-accent)] tabular-nums truncate">
+              {formatNumber(balance.totalDrops)}{' '}
+              {balance.totalDrops === 1 ? dict.lab.dropSingular : dict.lab.dropPlural} ·{' '}
+              {formatNumber(balance.noteCount)}{' '}
+              {balance.noteCount === 1 ? dict.lab.noteSingular : dict.lab.notePlural}
+            </div>
+            <div className="text-xs font-mono text-[var(--vpl-text-body)] truncate mt-0.5 tabular-nums">
+              {getLayerLabel('top')} {formatNumber(balance.pyramid.top)}% · {getLayerLabel('heart')}{' '}
+              {formatNumber(balance.pyramid.heart)}% · {getLayerLabel('base')}{' '}
+              {formatNumber(balance.pyramid.base)}%
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -353,20 +354,17 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {filteredNotes.map((note) => {
-                const noteCopy = getNoteCopy(note);
                 const drops = selection[note.id] ?? 0;
+                const entry = entries.find((e) => e.note.id === note.id);
+                const share = entry ? formatNumber(entry.percentage) : null;
                 const isRecommended = recommendedSet.has(note.id);
-                const share =
-                  balance.totalDrops > 0 && drops > 0
-                    ? formatNumber((drops / balance.totalDrops) * 100, {
-                        minimumFractionDigits: 1,
-                        maximumFractionDigits: 1,
-                      })
-                    : null;
+                const noteCopy = getNoteCopy(note);
+                const visual = note.visualMeta;
 
                 return (
                   <article
                     key={note.id}
+                    data-testid={`note-card-${note.id}`}
                     className={`p-4 rounded-xl border transition-colors flex flex-col justify-between ${
                       drops > 0
                         ? 'bg-[var(--vpl-bg-card-active)] border-[var(--vpl-border-gold)]'
@@ -374,40 +372,50 @@ export const ApothecaryLab: React.FC<ApothecaryLabProps> = ({
                     }`}
                   >
                     <div>
-                      <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-[var(--vpl-text-muted)] mb-1.5">
-                        <div className="flex items-center gap-2 min-w-0 truncate">
-                          <span
-                            className="w-2.5 h-2.5 rounded-sm shrink-0"
-                            style={{ backgroundColor: note.colorHex }}
-                            aria-hidden="true"
-                          />
-                          <span className="uppercase">{getLayerLabel(note.layer)}</span>
-                          <span aria-hidden="true">·</span>
-                          <span className="truncate">{getFamilyLabel(note.family)}</span>
+                      <div className="flex items-start justify-between gap-2.5 mb-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--vpl-text-muted)] truncate">
+                            <span className="uppercase">{getLayerLabel(note.layer)}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="truncate">{getFamilyLabel(note.family)}</span>
+                          </div>
+                          <h2 className="font-serif text-xl font-semibold text-[var(--vpl-text)] leading-snug truncate mt-0.5">
+                            {noteCopy.name}
+                          </h2>
                         </div>
-                        {isRecommended && (
-                          <span className="text-[var(--vpl-accent)] shrink-0">
-                            {dict.lab.profileMatch}
-                          </span>
-                        )}
+
+                        <div className="flex flex-col items-end shrink-0 gap-0.5">
+                          {isRecommended && (
+                            <span className="text-[10px] font-mono text-[var(--vpl-accent)]">
+                              {dict.lab.profileMatch}
+                            </span>
+                          )}
+                          {share && (
+                            <span className="font-mono text-xs text-[var(--vpl-accent)] tabular-nums">
+                              {share}%
+                            </span>
+                          )}
+                        </div>
                       </div>
 
-                      <div className="flex items-baseline justify-between gap-2">
-                        <h2 className="font-serif text-xl font-semibold text-[var(--vpl-text)] leading-snug">
-                          {noteCopy.name}
-                        </h2>
-                        {share && (
-                          <span className="font-mono text-xs text-[var(--vpl-accent)] tabular-nums shrink-0">
-                            {share}%
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="text-xs text-[var(--vpl-text-body)] mt-1.5 leading-relaxed">
+                      <p className="text-xs text-[var(--vpl-text-body)] mt-1 leading-relaxed">
                         {noteCopy.description}
                       </p>
 
-                      <div className="text-[11px] text-[var(--vpl-text-subtle)] mt-2 truncate">
+                      {visual && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-mono text-[var(--vpl-text-muted)]">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-[var(--vpl-border-strong)] shrink-0"
+                            style={{ backgroundColor: visual.visualColorHex }}
+                            aria-hidden="true"
+                          />
+                          <span>{dict.lab.viscosityLabels[visual.viscosityClass]}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{dict.lab.colorConfidenceLabels[visual.colorConfidence]}</span>
+                        </div>
+                      )}
+
+                      <div className="text-[11px] text-[var(--vpl-text-subtle)] mt-1.5 truncate">
                         {noteCopy.accords.join(' · ')}
                       </div>
                     </div>

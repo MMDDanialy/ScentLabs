@@ -4,10 +4,11 @@ import type {
   BalanceReport,
   BlendSelection,
   FragranceNote,
+  GenderClassificationSource,
   MatchResult,
   NormalizedNoteEntry,
   NoteLayer,
-  OlfactoryFamily,
+  PerfumeGender,
   ScentProfile,
 } from '../types/fragrance';
 import { generateCompositionTitle } from '../engine/formulationEngine';
@@ -124,6 +125,19 @@ export function getLocalizedFamily(locale: Locale, family: string): string {
 
 export function getLocalizedLayer(locale: Locale, layer: NoteLayer): string {
   return getDictionary(locale).domain.layers[layer] ?? layer;
+}
+
+export function getLocalizedGender(locale: Locale, gender: PerfumeGender | undefined): string {
+  const g: PerfumeGender = gender ?? 'unknown';
+  return getDictionary(locale).domain.genders[g] ?? g;
+}
+
+export function getLocalizedGenderSource(
+  locale: Locale,
+  source: GenderClassificationSource | undefined
+): string {
+  const s: GenderClassificationSource = source ?? 'unknown';
+  return getDictionary(locale).domain.genderSources[s] ?? s;
 }
 
 export function getLocalizedAccord(locale: Locale, accord: string): string {
